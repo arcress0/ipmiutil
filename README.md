@@ -1,0 +1,2 @@
+# ipmiutil
+ipmiutil is an easy to use set of IPMI server management utilities.  It can get/set sensor readings &amp; thresholds, automate SEL management, do SOL console, etc.  Supports Linux, Windows, BSD, Solaris, MacOSX.  The only IPMI project tool that runs natively on Windows.  See http://ipmiutil.sf.net for rpms, etc. (formerly called panicsel).  It can run driverless in Linux for use on boot media or embedded environments.
