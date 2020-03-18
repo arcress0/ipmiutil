@@ -1,0 +1,152 @@
+.TH IFIREWALL 8 "Version 1.0: 04 Jun 2010"
+.SH NAME
+ipmiutil_firewall \- configure the IPMI firmware firewall functions
+
+.SH SYNOPSIS
+.B "ipmiutil firewall [-mxNUPREFJTVY] parameters"
+
+.SH DESCRIPTION
+This
+.I ipmiutil firewall
+command supports the IPMI Firmware Firewall capability.  It may be used to
+add or remove security-based restrictions on certain commands/command
+sub-functions  or to list the current firmware firewall restrictions set on
+any commands.  For each firmware firewall command listed below, parameters
+may be included to cause the command to be executed with increasing
+granularity on a specific LUN, for a specific NetFn, for a specific IPMI
+Command, and finally for a specific command's sub-function.
+See Appendix H in the IPMI 2.0 Specification for a listing of any
+sub-function numbers that may be associated with a particular command.
+
+This utility can use either the /dev/ipmi0 driver from OpenIPMI,
+the /dev/imb driver from Intel, the /dev/ipmikcs driver from valinux,
+direct user-space IOs, or the IPMI LAN interface if \-N.
+
+.SH OPTIONS
+Command line options are described below.
+.IP "-m 002000"
+Show FRU for a specific MC (e.g. bus 00, sa 20, lun 00).
+This could be used for PICMG or ATCA blade systems.
+The trailing character, if present, indicates SMI addressing if 's',
+or IPMB addressing if 'i' or not present.
+.IP "-x"
+Causes extra debug messages to be displayed.
+.IP "-N nodename"
+Nodename or IP address of the remote target system.  If a nodename is
+specified, IPMI LAN interface is used.  Otherwise the local system
+management interface is used.
+.IP "-U rmt_user"
+Remote username for the nodename given.  The default is a null username.
+.IP "-P/-R rmt_pswd"
+Remote password for the nodename given.  The default is a null password.
+.IP "-E"
+Use the remote password from Environment variable IPMI_PASSWORD.
+.IP "-F drv_t"
+Force the driver type to one of the followng:
+imb, va, open, gnu, landesk, lan, lan2, lan2i, kcs, smb.
+Note that lan2i means lan2 with intelplus.
+The default is to detect any available driver type and use it.
+.IP "-J"
+Use the specified LanPlus cipher suite (0 thru 17): 0=none/none/none,
+1=sha1/none/none, 2=sha1/sha1/none, 3=sha1/sha1/cbc128, 4=sha1/sha1/xrc4_128,
+5=sha1/sha1/xrc4_40, 6=md5/none/none, ... 14=md5/md5/xrc4_40.
+Default is 3.
+.IP "-T"
+Use a specified IPMI LAN Authentication Type: 0=None, 1=MD2, 2=MD5, 4=Straight Password, 5=OEM.
+.IP "-V"
+Use a specified IPMI LAN privilege level. 1=Callback level, 2=User level, 3=Operator level, 4=Administrator level (default), 5=OEM level.
+.IP "-Y"
+Yes, do prompt the user for the IPMI LAN remote password.
+Alternatives for the password are \-E or \-P.
+
+.SH PARAMETERS
+Parameter syntax and dependencies are as follows:
+
+firewall [\fIchannel\fP \fBH\fR] [\fIlun\fP \fBL\fR [ \fInetfn\fP \fBN\fR [\fIcommand\fP \fBC\fR [\fIsubfn\fP \fBS\fR]]]]
+
+Note that if "netfn \fBN\fR" is specified, then "lun \fBL\fR" must also be
+specified;  if "command \fBC\fR" is specified, then "netfn \fBN\fR" (and
+therefore "lun \fBL\fR") must also be specified, and so forth.
+
+"channel \fBH\fR" is an optional and standalone parameter.  If not specified,
+the requested operation will be performed on the current channel.  Note that
+command support may vary from channel to channel.
+
+Firmware firewall commands:
+.RS
+.TP
+\fIinfo\fP [\fB(Parms as described above)\fR]
+.br
+
+List firmware firewall information for the specified LUN, NetFn, and
+Command (if supplied) on the current or specified channel.  Listed
+information includes the support, configurable, and enabled bits for
+the specified command or commands.
+
+Some usage examples:
+.RS
+.TP
+\fIinfo\fP [\fBchannel H\fR] [\fBlun L\fR]
+.br
+
+This command will list firmware firewall information for all NetFns for the
+specified LUN on either the current or the specified channel.
+.TP
+\fIinfo\fP [\fBchannel H\fR] [\fBlun L\fR [ \fBnetfn N\fR ]
+.br
+
+This command will print out all command information for a single LUN/NetFn pair.
+.TP
+\fIinfo\fP [\fBchannel H\fR] [\fBlun L\fR [ \fBnetfn N\fR [\fBcommand C\fR] ]]
+.br
+
+This prints out detailed, human-readable information showing the support, configurable,
+and enabled bits for the specified command on the specified LUN/NetFn pair.  Information
+will be printed about each of the command subfunctions.
+.TP
+\fIinfo\fP [\fBchannel H\fR] [\fBlun L\fR [ \fBnetfn N\fR [\fBcommand C\fR [\fBsubfn S\fR]]]]
+.br
+
+Print out information for a specific sub-function.
+.RE
+.TP
+\fIenable\fP [\fB(Parms as described above)\fR]
+.br
+
+This command is used to enable commands for a given NetFn/LUN combination on
+the specified channel.
+.TP
+\fIdisable\fP [\fB(Parms as described above)\fR] [\fBforce\fR]
+.br
+
+This command is used to disable commands for a given NetFn/LUN combination on
+the specified channel.   Great care should be taken if using the "force"
+option so as not to disable the "Set Command Enables" command.
+.TP
+\fIreset\fP [\fB(Parms as described above)\fR]
+.br
+
+This command may be used to reset the firmware firewall back to a state
+where all commands and command sub-functions are enabled.
+
+
+.SH "SEE ALSO"
+ipmiutil(8) ialarms(8) iconfig(8) idiscover(8) ievents(8) ifru(8) igetevent(8) ihealth(8) ilan(8) ireset(8) isel(8) isensor(8) iserial(8) isol(8) iwdt(8)
+
+.SH WARNINGS
+See http://ipmiutil.sourceforge.net/ for the latest version of ipmiutil and any bug fix list.
+
+.SH COPYRIGHT
+Copyright (C) 2010  Kontron America, Inc.
+.PP
+See the file COPYING in the distribution for more details
+regarding redistribution.
+.PP
+This utility is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY.
+
+.SH AUTHOR
+.PP
+Andy Cress <arcress at users.sourceforge.net>
+.br
+

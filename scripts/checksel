@@ -1,0 +1,31 @@
+#!/bin/sh
+#
+# checksel
+#
+# This script runs ipmiutil sel, writing any new records to syslog, 
+# and will then clear the SEL if free space is low.
+#
+# The IPMI SEL should not normally be cleared, because the history
+# of the events is important, but if the IPMI SEL fills up, no new
+# events are logged, so saving the previous SEL events and clearing
+# the SEL must be done occasionally, as needed.
+#
+# app=`basename $0`
+# pdir=`echo $0 |sed -e "s/$app//"`
+pdir=/usr/bin
+ddir=/var/lib/ipmiutil
+# First check to see if the IPMI SEL is enabled on this system.
+# If not, do nothing else.
+$pdir/ipmiutil sel -v >/dev/null 2>&1
+if [ $? -eq 0 ]; then
+  # Write new SEL events to syslog, and check if free space is low
+  $pdir/ipmiutil sel -w |grep "WARNING: free space" 
+  if [ $? -eq 0 ]; then
+     today=`date +%y%m%d`
+     # The old SEL records are in syslog, but save a copy in $ddir also.
+     $pdir/ipmiutil sel -e >$ddir/ipmisel_${today}.txt
+     # Clear the IPMI SEL
+     $pdir/ipmiutil sel -d
+     /bin/rm -f $ddir/sel.idx
+  fi
+fi

@@ -1,0 +1,33 @@
+.TH DOPANIC 8 "Version 1.0: 28 Feb 2007"
+.SH NAME
+dopanic \- kernel module to cause a panic
+.SH SYNOPSIS
+.B "insmod ./dopanic.ko"
+
+.SH DESCRIPTION
+dopanic is a Linux kernel module that calls panic when it is loaded.
+
+This can be used to test the CONFIG_IPMI_PANIC_STRING feature in
+the OpenIPMI driver.
+
+.SH "SEE ALSO"
+pefconfig(8) showsel(8) 
+
+.SH WARNINGS
+Be sure to sync your filesystem before using this module.
+See http://ipmiutil.sourceforge.net/ for the latest version and any bug fix list. 
+
+.SH COPYRIGHT
+Copyright (C) 2007  Intel Corp.
+.PP
+See the file COPYING in the distribution for more details
+regarding redistribution.
+.PP
+This utility is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY.
+
+.SH AUTHOR
+.PP
+Andy Cress <arcress at users.sourceforge.net>
+.br
+

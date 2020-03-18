@@ -1,0 +1,52 @@
+#! /bin/sh
+# ipmiutil ipmi_port setup script for systemd
+#
+
+. /usr/share/ipmiutil/ipmiutil.env
+
+getpid () {
+    # This is messy if the parent script is same name as $1
+    p=`ps -ef |grep "$1" |grep -v grep |awk '{print $2}'`
+    echo $p
+}
+
+isetup() {
+	retval=1
+	PID=0
+        
+	mkdir -p $IVARDIR
+	if [ ! -f $ISENSOROUT ]; then
+	   # Capture a snapshot of IPMI sensor data for later reuse.
+	   ipmiutil sensor -q >$ISENSOROUT
+	fi
+	if [ -f $ITHRESH ]
+	then
+	   # apply saved IPMI sensor thresholds, if any
+	   sh $ITHRESH
+	fi
+	if [ -d ${IMIBDIR} ]
+	then
+	   # put bmclanpet MIB where SNMP can find it
+	   cp -f $IDATADIR/bmclanpet.mib ${IMIBDIR}/BMCLAN-PET-MIB.txt
+	fi
+
+	dpc=`getpid dpcproxy`
+	if [ "x${dpc}" != "x" ]
+	then
+	   echo "dpcproxy is already running on port 623, so not needed."
+	   retval=6
+	else
+	   # portmap may have been replaced by portreserve 
+       # only need ipmi_port if portmap exists
+	   if [ -x $IPORTMAP ]
+	   then
+	      retval=0
+	   else
+	      retval=6
+	   fi
+	fi
+	return $retval
+}
+
+isetup
+

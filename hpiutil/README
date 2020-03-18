@@ -1,0 +1,249 @@
+hpiutil
+
+OVERVIEW
+
+The HPI utilities package provides system management utilities that
+conform to the SA Forum's Hardware Platform Interface specification, and
+as such are hardware-independent across platforms that have an HPI
+library implementation.  The HPI library on Intel platforms requires
+an IPMI driver.  An IPMI driver can be provided by either the Intel
+IPMI driver (/dev/imb) or the OpenIPMI driver (/dev/ipmi0) in Linux
+kernel versions 2.4.20 and greater.  
+
+This Intel HPI library is currently configured to use the /dev/imb 
+interface, since that will coexist well with Intel Server Management 
+software.  The hpiutil rpms default to the /dev/imb interface.  
+Note that the OpenIPMI driver also has imb emulation
+as an option.
+
+To switch to using the OpenIPMI driver's /dev/ipmi0 interface with 
+this hpiutil package, do this after installing the rpm:
+   cp /usr/lib/libSpiModIpmi.so      /usr/lib/libSpiModIpmi.so-imb
+   cp /usr/lib/libSpiModIpmi.so-open /usr/lib/libSpiModIpmi.so
+   sed -e 's/imb/ipmi0/' /etc/hpi/spi-daemon.conf >/tmp/spi
+   cp /tmp/spi /etc/hpi/spi-daemon.conf
+
+This package includes the Intel HPI binary libraries and the 
+following HPI utilities.
+   hpialarmpanel
+   hpisel
+   hpifru
+   hpisensor
+   hpireset
+   hpiwdt
+
+NOTES
+This package uses the Intel HPI library implementation, but there
+is also an OpenHPI library implementation that could also be linked
+with these utilities.  There are comments in the Makefile to show
+how this can be done. 
+The hpiutil utilities are included in OpenHPI 1.0.0 and greater 
+as openhpi-clients.
+The openhpi-2.6.3 and greater releases with the ipmidirect plugin
+have been tested to work well on IPMI systems.
+
+Variations from HPI 1.0 spec:
+
+- SystemGUID added.  Implemented as a FRU Product Custom field.
+  The IPMI SystemGUID was not supported in the HPI FRU fields.
+  This library implementation shows SystemGUID as part of FRU, but 
+  does not try to write GUID as part of FRU.
+  See HPI 1.0 spec errata #66
+
+- Power down added to Chassis/Cold Reset RDR via ControlStateSet(OFF)
+  There was no mechanism defined in the HPI 1.0 spec to support chassis 
+  power down.  Here is the way this was implemented with this library. 
+  Doing ControlStateSet(ON) with the Reset RDR causes a hard reset.
+  Doing ControlStateSet(OFF) with the Reset RDR causes a power down.
+  See HPI 1.0 spec errata #30
+
+- Alarm LED RDRs were not differentiated.
+  This variation is required to implement ControlStateSet for Alarm LEDs.
+  See also HPI 1.0 spec errata #75
+  The oem field values are used to do this according to the following schema.
+
+  Control.Type Control.OutputType Control.Oem	Meaning
+  Digital (=0)	LED (=1)	0x10 		Alarm panel Power LED
+  Digital (=0)	LED (=1)	0x11		Alarm panel Critical LED
+  Digital (=0)	LED (=1)	0x12 		Alarm panel Major LED
+  Digital (=0)	LED (=1)	0x13 		Alarm panel Minor LED
+  Digital (=0)	LED (=1)	0x14 - 0x1F	Alarm panel other LEDs
+  Digital (=0)	LED (=1)	0x20 - 0x2F	Disk LEDs (if used)
+  Digital (=0)	LED (=1)	0x30 - 0x3F	NIC LEDs (if used)
+  Analog (=2)	LED (=1)	0x60		Chassis Identify LED
+  Analog (=2)	LED (=1)	0x61 - 0x6F	Other Analog LEDs (if used)
+  Digital (=0)	Generic (=0)	0x70 - 0x7F	Chassis Reset Control
+
+
+SUPPORT 
+
+The following error codes are returned by HPI APIs and are defined in SaHpi.h.
+ 0     SA_OK             
+-1001  SA_ERR_HPI_ERROR   
+-1002  SA_ERR_HPI_UNSUPPORTED_API 
+-1003  SA_ERR_HPI_BUSY
+-1004  SA_ERR_HPI_INVALID
+-1005  SA_ERR_HPI_INVALID_CMD
+-1006  SA_ERR_HPI_TIMEOUT
+-1007  SA_ERR_HPI_OUT_OF_SPACE
+-1008  SA_ERR_HPI_DATA_TRUNCATED
+-1009  SA_ERR_HPI_DATA_LEN_INVALID
+-1010  SA_ERR_HPI_DATA_EX_LIMITS
+-1011  SA_ERR_HPI_INVALID_PARAMS
+-1012  SA_ERR_HPI_INVALID_DATA
+-1013  SA_ERR_HPI_NOT_PRESENT
+-1014  SA_ERR_HPI_INVALID_DATA_FIELD
+-1015  SA_ERR_HPI_INVALID_SENSOR_CMD
+-1016  SA_ERR_HPI_NO_RESPONSE 
+-1017  SA_ERR_HPI_DUPLICATE 
+-1018  SA_ERR_HPI_UPDATING
+-1019  SA_ERR_HPI_INITIALIZING
+-1020  SA_ERR_HPI_UNKNOWN
+-1021  SA_ERR_HPI_INVALID_SESSION
+-1022  SA_ERR_HPI_INVALID_DOMAIN
+-1023  SA_ERR_HPI_INVALID_RESOURCE
+-1024  SA_ERR_HPI_INVALID_REQUEST
+-1025  SA_ERR_HPI_ENTITY_NOT_PRESENT
+-1026  SA_ERR_HPI_UNINITIALIZED
+
+If problems occur, additional debug information can be obtained by 
+editing the SPI_DAEMON_LOG_LEVEL variable in the /etc/rc.d/init.d/hpi 
+script to change the log level.
+SPI_DAEMON_LOG_LEVEL - Level at which to log debug information. The
+                       following list describes each of the logging
+                       switches. Multiple switches may be used at once.
+                          -l<num>: Logs data at a given level. Where num...
+                             1 = Logs debug low through fatal errors.
+                             2 = Logs debug high through fatal errors.
+                             3 = Logs informational through fatal errors.
+                             4 = Logs warnings through fatal errors.
+                             5 = Log non-fatal errors and fatal errors.
+                             6 = Logs fatal errors only.
+                          -lf: Logs function entrance and exit.*
+                          -lm: Logs memory usage.*
+                          -ls: Logs semaphore usage.*
+                          * = In order to use these options, the -l<num>
+                              option must also be set.
+
+Support for the hpiutil rpm is provided on a best-effort basis via 
+   tltsupport@linux.intel.com 
+
+
+REFERENCES
+
+IPMI 1.5 specification:     http://www.intel.com/design/servers/ipmi/
+Open source IPMI utilities: http://panicsel.sourceforge.net
+SA Forum HPI 1.0 spec:  http://www.saforum.org/specification/HPI_Specification
+Intel HPI 1.0 compliance test suite:  Contact Keith.L.Perrin@Intel.com
+OpenHPI  project:           http://openhpi.sourceforge.net
+
+TESTING
+
+  The binary HPI libraries included in this package have been tested to be 
+  HPI 1.0 compliant via the Intel HPI 1.0 compliance test suite.
+
+  This package has been tested and is supported on the following Intel
+  servers:  TSRLT2, TSRMT2, TIGPR2U, TIGPT1U.
+  See also http://www.saforum.org for platform support information.
+  Most of the utilities (except hpialarmpanel) should work on other
+  platforms as well, if they have IPMI 1.5 support.
+  Note that mBMC platforms, such as TIGPT1U, do not support the 
+  Power On Hours function, which is optional in IPMI 1.5.
+
+  This hpiutil package is not inherently dependent on any OS variance,
+  as long as there is an IPMI driver.  However, the version of glibc/gcc
+  does matter, since the library includes shared object files.
+  This HPI library and the HPI utilities have been tested on the 
+  following Linux OSs.  
+     RedHat EL 3        (gcc 3.2.3,  glibc 2.3.2)
+     RedHat AS 2.1      (gcc 2.96,   glibc 2.2.4)
+     RedHat 8.0         (gcc 3.2,    glibc 2.2.93)
+     MontaVista CGE 2.1 (gcc 2.95.3, glibc 2.2.3 )
+     MontaVista CGE 3.0 (gcc 3.2.1,  glibc 2.2.5)
+     MontaVista CGE 3.1 (gcc 3.2.1,  glibc 2.2.5)
+  Other Linux OSs should work fine using an rpm with similar gcc/glibc.
+
+  SA-HPI Release 1.0 Library APIs
+  The following APIs are supported in this release:
+
+Initialization and Cleanup
+saHpiInitialize()
+saHpiFinalize()
+Session Management
+saHpiSessionOpen()
+saHpiSessionClose()
+
+Discovery of Resources
+saHpiResourcesDiscover()
+saHpiRptInfoGet()
+saHpiRptEntryGet()
+saHpiRptEntryGetByResourceId()
+saHpiResourceSeveritySet()
+saHpiResourceTagSet()
+saHpiResourceIdGet()
+saHpiEntitySchemaGet()
+
+Event Log Management
+saHpiEventLogInfoGet()
+saHpiEventLogEntryGet()
+saHpiEventLogEntryAdd()
+saHpiEventLogEntryDelete ()
+saHpiEventLogClear()
+saHpiEventLogTimeGet()
+saHpiEventLogTimeSet()
+saHpiEventLogStateGet()
+saHpiEventLogStateSet()
+
+Events
+saHpiSubscribe()
+saHpiUnsubscribe()
+saHpiEventGet()
+
+RDR Repository Management
+saHpiRdrGet()
+
+Sensor Functions
+saHpiSensorReadingGet()
+saHpiSensorReadingConvert()
+saHpiSensorThresholdsGet()
+saHpiSensorThresholdsSet()
+saHpiSensorTypeGet()
+saHpiSensorEventEnablesGet()
+saHpiSensorEventEnablesSet()
+
+Controls
+saHpiControlTypeGet()
+saHpiControlStateGet()
+saHpiControlStateSet()
+
+Entity Inventory Data
+saHpiEntityInventoryDataRead()
+saHpiEntityInventoryDataWrite()
+
+Watchdog Timer
+saHpiWatchdogTimerGet()
+saHpiWatchdogTimerSet()
+saHpiWatchdogTimerReset()
+
+Reset
+saHpiResourceResetStateGet()
+saHpiResourceResetStateSet()
+
+Hot Swap Routines
+saHpiHotSwapControlRequest()
+saHpiResourceActiveSet()
+saHpiResourceInactiveSet()
+saHpiAutoInsertTimeoutGet()
+saHpiAutoInsertTimeoutSet()
+saHpiAutoExtractTimeoutGet()
+saHpiAutoExtractTimeoutSet()
+saHpiHotSwapStateGet()
+saHpiHotSwapActionRequest()
+saHpiResourcePowerStateGet()
+saHpiResourcePowerStateSet()
+saHpiHotSwapIndicatorStateGet()
+saHpiHotSwapIndicatorStateSet()
+
+Configuration
+saHpiParmControl()  - disabled for this library by design
+

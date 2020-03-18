@@ -1,0 +1,12 @@
+#
+# DOPANIC device configuration
+#
+
+menu "DOPANIC"
+config DOPANIC
+       tristate 'Do Panic'
+       help
+         This causes a Linux kernel panic when loaded.
+	 If unsure, say N.
+
+endmenu

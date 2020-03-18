@@ -1,0 +1,210 @@
+--************************************************************************\
+--*                                                                       *
+--*  Copyright (c) 1998-2004 Intel Corporation. All Rights Reserved.      *
+--*                                                                       *
+--* Redistribution and use in source and binary forms, with or without    *
+--* modification, are permitted provided that the following conditions    *
+--* are met:                                                              *
+--*                                                                       *
+--*   a.. Redistributions of source code must retain the above copyright  *
+--*       notice, this list of conditions and the following disclaimer.   *
+--*   b.. Redistributions in binary form must reproduce the above         *
+--*       copyright notice, this list of conditions and the following     *
+--*       disclaimer in the documentation and/or other materials provided *
+--*       with the distribution.                                          *
+--*   c.. Neither the name of Intel Corporation nor the names of its      *
+--*       contributors may be used to endorse or promote products derived *
+--*       from this software without specific prior written permission.   *
+--*                                                                       *
+--* THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS   *
+--* "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT     *
+--* LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR *
+--* A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT  *
+--* OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, *
+--* SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT      *
+--* LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, *
+--* DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON     *
+--* ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR    *
+--* TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF    *
+--* THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH  *
+--* DAMAGE.                                                               *
+--*                                                                       *
+--\***********************************************************************/
+
+--/**************************************************************************
+--*
+--* NAME:
+--*   aolnprxy.mib
+--*
+--* DESCRIPTION:
+--* 	Alert on LAN MIB
+--*	  
+--*  
+--*  $WorkFile: $  
+--*  $Revision: 6 $  
+--*  $ModTime:  $  
+--*  $Author: Psaranga $  
+--*
+--***************************************************************************
+
+PET-MIB
+
+DEFINITIONS ::= BEGIN
+
+-- Title : Alert on LAN pET MIB version 1.0.
+
+IMPORTS
+  MODULE-IDENTITY,  
+  OBJECT-TYPE,
+  Integer32, IpAddress  
+  FROM SNMPv2-SMI
+    enterprises
+	  FROM RFC1155-SMI
+	DisplayString
+	  FROM RFC1213-MIB
+	    TRAP-TYPE
+		  FROM RFC-1215
+	  ;
+
+
+wired_for_management        OBJECT IDENTIFIER ::= { enterprises 3183 }
+pET                         OBJECT IDENTIFIER ::= { wired_for_management 1 }
+pET_version_1               OBJECT IDENTIFIER ::= { pET 1 }
+
+
+-- MODULE IDENTIFICATION
+--
+-- Alert_on_LAN MODULE-IDENTITY
+--  LAST-UPDATED "9807210000Z"
+--  ORGANIZATION "Intel Corporation"
+--  CONTACT-INFO
+--   " Alert On LAN* Software
+--     Intel Corporation, JF3-4
+--	 Hillsboro, OR. "
+--  DESCRIPTION
+--  " This is the pET MIB. Version 1.0 "
+-- We should be able to plug this branch into any tree from this point forward
+
+
+-- ****************************************
+-- SYSTEM INFORMATION BRANCH STARTS HERE.
+-- ****************************************
+
+
+pETTrap OBJECT-TYPE
+ SYNTAX OCTET STRING ( SIZE(110) )
+ ACCESS read-only
+ STATUS current
+ DESCRIPTION
+  "Trap information"
+::= { pET_version_1 1 }
+
+pET_PresenceHeartbeat TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "Presence Heartbeat Expired"
+ ::= 2584320
+
+pET_CoverTamper TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "Cover Tamper"
+ ::= 356096
+
+pET_Voltage_Fan_Temperature TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "Voltage/Fan/Temperature Out of Specification"
+ ::= 552706
+
+pET_LANLeash TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "LAN Leash Tamper"
+ ::= 356100
+
+pET_Temperature TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "Temperature Out of Specification"
+ ::= 93952
+
+pET_ProcessorMissing TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "Processor Missing"
+ ::= 356099
+
+pET_ProcessorTemperature TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "Processor Over Temperature"
+ ::= 487169
+
+pET_Watchdog TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "Watchdog Event"
+ ::= 1142534
+
+pET_P_O_S_T TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "P.O.S.T."
+ ::= 1011456
+
+pET_Voltage TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "Voltage Out of Specification"
+ ::= 159488
+
+pET_Fan TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "Fan Out of Specification"
+ ::= 290560
+
+pET_Fan_Temperature TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "Fan/Temperature Out of Specification"
+ ::= 683778
+
+pET_Undock TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "Surprised Undock event"
+ ::= 356101 
+
+pET_EventClear TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "Event clear"
+ ::= 1076994
+
+pET_AlertOnLAN_2 TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "Alert on LAN 2 Event has occurred"
+ ::= 2277391
+
+pET_AlertOnLAN_Boot TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "System Boot Event occurred"
+ ::= 1208065
+
+pET_AlertOnLAN_Fan TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "Fan Event occurred"
+ ::= 262400
+
+pET_AlertOnLAN_Fan2 TRAP-TYPE
+ ENTERPRISE pET_version_1
+ DESCRIPTION 
+  "Fan Event occurred"
+ ::= 262402
+
+END

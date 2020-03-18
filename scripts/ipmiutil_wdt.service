@@ -1,0 +1,14 @@
+[Unit]
+Description=ipmiutil Watchdog Timer Service using cron
+After=network.target
+
+[Service]
+ExecStart=/usr/share/ipmiutil/ipmiutil_wdt start
+ExecStop=/usr/share/ipmiutil/ipmiutil_wdt stop
+ExecReload=/usr/share/ipmiutil/ipmiutil_wdt restart
+RemainAfterExit=1
+
+[Install]
+WantedBy=multi-user.target
+
+

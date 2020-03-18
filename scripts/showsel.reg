@@ -1,0 +1,10 @@
+REGEDIT4
+
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\EventLog\Application\showsel]
+"EventMessageFile"="%SystemRoot%\\system32\\showselmsg.dll"
+"TypesSupported"=dword:00000007
+"IndexFile"="%ipmiutildir%\\sel.idx"
+
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Schedule]
+"AtTaskMaxHours"=dword:00000000
+

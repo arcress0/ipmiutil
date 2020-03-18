@@ -1,0 +1,224 @@
+-------------------------------------
+ INSTALL for ipmiutil source
+-------------------------------------
+ 
+The ipmiutil source package provides IPMI-based utilities and kernel 
+patches for managing various servers in Linux or Windows.
+
+The same source files can be built in both Linux and Windows as shown 
+below.
+ 
+-------------------------------------
+  Build instructions for Linux 
+-------------------------------------
+
+To build with some GPL code:  
+If you are building ipmiutil for open-source, then the MD2 hash 
+for IPMI LAN and the valinux driver interface (/dev/ipmikcs) can 
+be supported.  If so, you should specify the following during 
+configure:
+   "./configure --enable-gpl"
+The default is to build with only BSD-licensed code and not to 
+include the MD2 and valinux features.  The md2.h and ipmi_ioctl.h
+files with GPL code can be removed if this option is not enabled.
+
+To build a standalone binary without IPMI LAN 2.0 (lanplus plugin),
+which may be desirable for use on bootable media (USB/CDROM), to 
+decrease the size or to avoid using libcrypto, you can specify the 
+following during configure:
+   "./configure --disable-lanplus"
+or
+   "./configure --enable-standalone"
+builds it without lanplus libs and without GPL code.
+
+To add LanDesk IPMI support:
+Support for the LanDesk IPMI driver requires a library supplied by 
+LanDesk (libipmiapi.a).  After obtaining this library, place it in
+lib/libipmiapi.a.  Then you can link ipmiutil to support it by 
+specifying the following during configure:
+   "./configure --enable-landesk=yes"
+
+Steps to build for Linux:
+# ./beforeconf.sh
+  Which automates these functions:
+   * copying libtool files
+   * aclocal   (may be needed if automake versions are different)
+   * autoconf  (may be needed if automake versions are different)
+   * automake  
+# ./configure
+      --enable-landesk       adds landesk library support [default=no]
+      --disable-lanplus      disable lanplus library support
+      --enable-standalone    build standalone, with no GPL or LanPlus libs.
+      --enable-gpl           build with some GPL code [default=no]
+# make
+
+To add the ifruset utility, which allows setting any FRU Product fields:
+# cd util; make ifruset
+# ifruset -?
+
+To build and install an rpm package, use one of the following:
+#  make install
+#  make rpm
+The make rpm produces a binary rpm, and a source rpm, which can be 
+installed with "rpm -i *.rpm".
+
+To build and install a Debian package, do this:
+#  dpkg-buildpackage
+then install it with "dpkg -i *.deb".
+
+-------------------------------------
+  Build instructions for Windows 
+-------------------------------------
+
+The ipmiutil Windows binaries for each release are pre-built and posted
+at http://ipmiutil.sourceforge.net, but here is how to build the ipmiutil 
+EXEs for Windows from source.
+Note that the WIN32 compile flag is used.  
+The ipmiutil buildwin.cmd shows how to compile and link the lib and exe 
+files, although many people prefer instead to do builds with the 
+Microsoft VisualStudio project GUI.  
+See also ipmiutil UserGuide section 5.2 for more details if needed.
+
+1)  Install Visual Studio
+The build environment assumes that VisualStudio 6.0 VC98 or
+later is installed. 
+
+2)  Download contrib files
+Before running buildwin.cmd, first download the contributed
+files for Windows (includes getopt.c and openssl).
+A copy of these files is available from 
+   http://ipmiutil.sf.net/FILES/ipmiutil-contrib.zip
+
+3)  Copy initial contrib files into ipmiutil
+Below are sample directories where ipmiutil*.tar.gz was unpacked, 
+and where the openssl*.tar.gz was unpacked.
+> set ipmiutil_dir=c:\dev\ipmiutil
+> set openssl_dir=c:\dev\openssl
+
+First, copy the getopt.c & getopt.h into the util directory.  
+From the directory where ipmiutil-contrib.zip was unpacked, 
+> copy getopt.*      %ipmiutil_dir%\util
+The iphlpapi.lib comes from VS 2003 .Net or Win2003 DDK.
+> copy iphlpapi.lib  %ipmiutil_dir%\lib
+> copy iphlpapi.h    %ipmiutil_dir%\util  
+
+4)  Build the openssl libraries
+To build from original source you would then want to build a copy of openssl 
+for Windows, and copy the built openssl files to lib & inc.
+Follow the openssl build instructions from INSTALL.W32 for VC++ to build 
+these binaries.  Note that perl must also be installed first.
+
+5)  Copy the resulting LIB and DLL binaries to ipmiutil
+> copy %openssl_dir%\out32dll\libeay32.lib  %ipmiutil_dir%\lib
+> copy %openssl_dir%\out32dll\ssleay32.lib  %ipmiutil_dir%\lib
+> copy %openssl_dir%\out32dll\libeay32.dll  %ipmiutil_dir%\util
+> copy %openssl_dir%\out32dll\ssleay32.dll  %ipmiutil_dir%\util
+> mkdir %ipmiutil_dir%\lib\lanplus\openssl
+> copy %openssl_dir%\include\openssl\*.h %ipmiutil_dir%\lib\lanplus\openssl
+
+6)  Set the Visual Studio variables with vcvars*.bat
+For your installation of Microsoft Visual Studio, it has batch files to
+set the Visual C variables. Run the appropriate architecture version of
+these batch files to set the VC variables.
+
+Example:
+C:\Program Files (x86)\Microsoft Visual Studio 9.0\VC\vcvarsall.bat
+or
+C:\Program Files (x86)\Microsoft Visual Studio 9.0\VC\bin\vcvars32.bat
+or
+C:\Program Files (x86)\Microsoft Visual Studio 9.0\VC\bin\amd64\vcvarsamd64.bat
+
+7)  Run buildwin.cmd
+buildwin.cmd will build all of the Windows EXE and DLL files.
+
+If you are using ipmiutil for a bootable WinPE environment, and do not need
+Serial-Over-LAN functionality, the buildwin2.cmd will build the Windows EXE 
+files without using the openssl libraries, to simplify the process.  The 
+openssl libraries are required for the IPMI LAN 2.0 crypto functions that
+Serial-Over-LAN requires.  
+
+
+-------------------------------------
+  Build instructions for Solaris
+-------------------------------------
+# iver=2.7.9
+# uname -a
+SunOS unknown 5.10 Generic_127128-11 i86pc i386 i86pc
+# gunzip ipmiutil-${iver}.tar.gz
+# tar xvf ipmiutil-${iver}.tar
+# cd ipmiutil-${iver}
+# PATH=/usr/sbin:/usr/bin:/usr/ucb:/usr/openwin:/usr/ccs/bin:/usr/sfw/bin
+# ./configure
+# make
+# make tarsol
+This produces /tmp/ipmiutil-${iver}-solaris.tar with the binaries.
+# gzip /tmp/ipmiutil-${iver}-solaris.tar
+
+Solaris Release Notes:
+- Built with support for bmc, lan, and lanplus interfaces.
+  Supports the Solaris 10 /dev/bmc driver via putmsg method.
+- Requests to slave addresses other than BMC are not supported by
+  the Solaris bmc driver (e.g. to HSC at 0xc0), and are sent to 
+  the BMC sa instead.
+- Memory mapping logic returns an error (e.g. BIOS version).
+- idiscover -a broadcast ioctl works now in ipmiutil-2.3.1
+
+To Install on Solaris:
+  gunzip /tmp/ipmiutil-${iver}-solaris.tar.gz
+  tar xvf /tmp/ipmiutil-${iver}-solaris.tar
+  ./install.sh
+
+-------------------------------------
+  Build instructions for FreeBSD
+-------------------------------------
+# iver=2.7.9
+# gunzip ipmiutil-${iver}.tar.gz
+# tar xvf ipmiutil-${iver}.tar
+# cd ipmiutil-${iver}
+# ./configure
+# make
+# make tarbsd
+This produces /tmp/ipmiutil-${iver}-bsd.tar with the binaries.
+# gzip /tmp/ipmiutil-${iver}-bsd.tar
+
+FreeBSD Release Notes:
+  - ipmiutil-2.3.5 supports FreeBSD with direct driverless KCS
+  - ipmiutil-2.5.2 adds support for FreeBSD 7.x ipmi driver port
+
+To Install on FreeBSD:
+  gunzip /tmp/ipmiutil-${iver}-bsd.tar.gz
+  tar xvf /tmp/ipmiutil-${iver}-bsd.tar
+  ./install.sh
+
+-------------------------------------
+  Build instructions for MAC OSX
+-------------------------------------
+# iver=2.9.1
+# tar -xvxf ipmiutil-${iver}.tar.gz
+# cd ipmiutil-${iver}
+# ./beforeconf.sh    
+There are some warnings shown, but this does the aclocal/autoconf/automake.
+# ./configure
+# make
+# make tarbsd
+This produces /tmp/ipmiutil-${iver}-bsd.tar with the binaries.
+# mv /tmp/ipmiutil-${iver}-bsd.tar /tmp/ipmiutil-${iver}-macos.tar
+# gzip /tmp/ipmiutil-${iver}-macos.tar
+
+To Install on MacOS from a Terminal:
+  gunzip /tmp/ipmiutil-${iver}-macos.tar.gz
+  tar xvf /tmp/ipmiutil-${iver}-macos.tar
+  ./install.sh
+
+Release Notes for MAC OSX:
+  - ipmiutil-2.9.1 supports MacOSX client builds
+  - Does not yet support AppleBMC.kext, pending documentation
+
+---------------------------------------
+  Build instructions for ARM (Android)
+---------------------------------------
+# tar -xzvf ipmiutil-${iver}.tar.gz
+# cd ipmiutil-${iver}
+# ./configure --enable-standalone --host=arm
+# make
+

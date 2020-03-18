@@ -1,0 +1,6633 @@
+--- linux-2.4.18-14orig/Documentation/Configure.help	2002-09-04 11:54:06.000000000 -0400
++++ linux-2.4.18-14/Documentation/Configure.help	2003-03-27 15:26:22.000000000 -0500
+@@ -25565,6 +25565,31 @@
+   information:  http://www.candelatech.com/~greear/vlan.html  If unsure,
+   you can safely say 'N'.
+ 
++IPMI top-level message handler
++CONFIG_IPMI_HANDLER
++  This enables the central IPMI message handler, required for IPMI
++  to work.  Note that you must have this enabled to do any other IPMI
++  things.  See IPMI.txt for more details.
++
++Generate a panic event to all BMCs on a panic
++CONFIG_IPMI_PANIC_EVENT
++  When a panic occurs, this will cause the IPMI message handler to
++  generate an IPMI event describing the panic to each interface
++  registered with the message handler.
++
++Device interface for IPMI
++CONFIG_IPMI_DEVICE_INTERFACE
++  This provides an IOCTL interface to the IPMI message handler so
++  userland processes may use IPMI.  It supports poll() and select().
++
++IPMI KCS handler
++CONFIG_IPMI_KCS
++  Provides a driver for a KCS-style interface to a BMC.
++
++IPMI Watchdog Timer
++CONFIG_IPMI_WATCHDOG
++  This enables the IPMI watchdog timer.
++
+ #
+ # A couple of things I keep forgetting:
+ #   capitalize: AppleTalk, Ethernet, DOS, DMA, FAT, FTP, Internet,
+--- linux-2.4.18-14orig/drivers/char/Makefile	2002-09-04 11:54:03.000000000 -0400
++++ linux-2.4.18-14/drivers/char/Makefile	2003-03-27 15:26:22.000000000 -0500
+@@ -293,6 +293,11 @@
+   obj-y += oprofile/oprofile_mod.o
+ endif
+ 
++subdir-$(CONFIG_IPMI_HANDLER) += ipmi
++ifeq ($(CONFIG_IPMI_HANDLER),y)
++  obj-y += ipmi/ipmi.o
++endif
++
+ include $(TOPDIR)/Rules.make
+ 
+ fastdep:
+--- linux-2.4.18-14orig/drivers/char/Config.in	2002-09-04 11:54:05.000000000 -0400
++++ linux-2.4.18-14/drivers/char/Config.in	2003-03-27 15:26:22.000000000 -0500
+@@ -175,6 +175,12 @@
+    fi
+ fi
+ 
++tristate 'IPMI top-level message handler' CONFIG_IPMI_HANDLER
++dep_mbool '  Generate a panic event to all BMCs on a panic' CONFIG_IPMI_PANIC_EVENT $CONFIG_IPMI_HANDLER
++dep_tristate '  Device interface for IPMI' CONFIG_IPMI_DEVICE_INTERFACE $CONFIG_IPMI_HANDLER
++dep_tristate '  IPMI KCS handler' CONFIG_IPMI_KCS $CONFIG_IPMI_HANDLER
++dep_tristate '  IPMI Watchdog Timer' CONFIG_IPMI_WATCHDOG $CONFIG_IPMI_HANDLER
++
+ mainmenu_option next_comment
+ comment 'Watchdog Cards'
+ bool 'Watchdog Timer Support'	CONFIG_WATCHDOG
+--- linux-2.4.18-14orig/kernel/ksyms.c	2002-09-04 11:54:06.000000000 -0400
++++ linux-2.4.18-14/kernel/ksyms.c	2003-03-27 15:26:22.000000000 -0500
+@@ -70,6 +70,8 @@
+ extern int request_dma(unsigned int dmanr, char * deviceID);
+ extern void free_dma(unsigned int dmanr);
+ extern spinlock_t dma_spin_lock;
++extern int panic_timeout;
++
+ 
+ #ifdef CONFIG_MODVERSIONS
+ const struct module_symbol __export_Using_Versions
+@@ -507,6 +509,8 @@
+ 
+ /* misc */
+ EXPORT_SYMBOL(panic);
++EXPORT_SYMBOL(panic_notifier_list);
++EXPORT_SYMBOL(panic_timeout);
+ EXPORT_SYMBOL(__out_of_line_bug);
+ EXPORT_SYMBOL(sprintf);
+ EXPORT_SYMBOL(snprintf);
+--- /dev/null	2002-08-30 19:31:37.000000000 -0400
++++ linux-2.4.18-14/Documentation/IPMI.txt	2003-03-27 15:26:22.000000000 -0500
+@@ -0,0 +1,352 @@
++
++                          The Linux IPMI Driver
++			  ---------------------
++			      Corey Minyard
++			  <minyard@mvista.com>
++			    <minyard@acm.org>
++
++This document describes how to use the IPMI driver for Linux.  If you
++are not familiar with IPMI itself, see the web site at
++http://www.intel.com/design/servers/ipmi/index.htm.  IPMI is a big
++subject and I can't cover it all here!
++
++Basic Design
++------------
++
++The Linux IPMI driver is designed to be very modular and flexible, you
++only need to take the pieces you need and you can use it in many
++different ways.  Because of that, it's broken into many chunks of
++code.  These chunks are:
++
++ipmi_msghandler - This is the central piece of software for the IPMI
++system.  It handles all messages, message timing, and responses.  The
++IPMI users tie into this, and the IPMI physical interfaces (called
++System Management Interfaces, or SMIs) also tie in here.  This
++provides the kernelland interface for IPMI, but does not provide an
++interface for use by application processes.
++
++ipmi_devintf - This provides a userland IOCTL interface for the IPMI
++driver, each open file for this device ties in to the message handler
++as an IPMI user.
++
++ipmi_kcs_drv - A driver for the KCS SMI.  Most system have a KCS
++interface for IPMI.
++
++
++Much documentation for the interface is in the include files.  The
++IPMI include files are:
++
++ipmi.h - Contains the user interface and IOCTL interface for IPMI.
++
++ipmi_smi.h - Contains the interface for SMI drivers to use.
++
++ipmi_msgdefs.h - General definitions for base IPMI messaging.
++
++
++Addressing
++----------
++
++The IPMI addressing works much like IP addresses, you have an overlay
++to handle the different address types.  The overlay is:
++
++  struct ipmi_addr
++  {
++	int   addr_type;
++	short channel;
++	char  data[IPMI_MAX_ADDR_SIZE];
++  };
++
++The addr_type determines what the address really is.  The driver
++currently understands two different types of addresses.
++
++"System Interface" addresses are defined as:
++
++  struct ipmi_system_interface_addr
++  {
++	int   addr_type;
++	short channel;
++  };
++
++and the type is IPMI_SYSTEM_INTERFACE_ADDR_TYPE.  This is used for talking
++straight to the BMC on the current card.  The channel must be
++IPMI_BMC_CHANNEL.
++
++Messages that are destined to go out on the IPMB bus use the
++IPMI_IPMB_ADDR_TYPE address type.  The format is
++
++  struct ipmi_ipmb_addr
++  {
++	int           addr_type;
++	short         channel;
++	unsigned char slave_addr;
++	unsigned char lun;
++  };
++
++The "channel" here is generally zero, but some devices support more
++than one channel, it corresponds to the channel as defined in the IPMI
++spec.
++
++
++Messages
++--------
++
++Messages are defined as:
++
++struct ipmi_msg
++{
++	unsigned char netfn;
++	unsigned char lun;
++	unsigned char cmd;
++	unsigned char *data;
++	int           data_len;
++};
++
++The driver takes care of adding/stripping the header information.  The
++data portion is just the data to be send (do NOT put addressing info
++here) or the response.  Note that the completion code of a response is
++the first item in "data", it is not stripped out because that is how
++all the messages are defined in the spec (and thus makes counting the
++offsets a little easier :-).
++
++When using the IOCTL interface from userland, you must provide a block
++of data for "data", fill it, and set data_len to the length of the
++block of data, even when receiving messages.  Otherwise the driver
++will have no place to put the message.
++
++Messages coming up from the message handler in kernelland will come in
++as:
++
++  struct ipmi_recv_msg
++  {
++	struct list_head link;
++
++	/* The type of message as defined in the "Receive Types"
++           defines above. */
++	int         recv_type;
++
++	ipmi_user_t      *user;
++	struct ipmi_addr addr;
++	long             msgid;
++	struct ipmi_msg  msg;
++
++	/* Call this when done with the message.  It will presumably free
++	   the message and do any other necessary cleanup. */
++	void (*done)(struct ipmi_recv_msg *msg);
++
++	/* Place-holder for the data, don't make any assumptions about
++	   the size or existence of this, since it may change. */
++	unsigned char   msg_data[IPMI_MAX_MSG_LENGTH];
++  };
++
++You should look at the receive type and handle the message
++appropriately.
++
++
++The Upper Layer Interface (Message Handler)
++-------------------------------------------
++
++The upper layer of the interface provides the users with a consistent
++view of the IPMI interfaces.  It allows multiple SMI interfaces to be
++addressed (because some boards actually have multiple BMCs on them)
++and the user should not have to care what type of SMI is below them.
++
++
++Creating the User
++
++To user the message handler, you must first create a user using
++ipmi_create_user.  The interface number specifies which SMI you want
++to connect to, and you must supply callback functions to be called
++when data comes in.  The callback function can run at interrupt level,
++so be careful using the callbacks.  This also allows to you pass in a
++piece of data, the handler_data, that will be passed back to you on
++all calls.
++
++Once you are done, call ipmi_destroy_user() to get rid of the user.
++
++From userland, opening the device automatically creates a user, and
++closing the device automatically destroys the user.
++
++
++Messaging
++
++To send a message from kernel-land, the ipmi_request() call does
++pretty much all message handling.  Most of the parameter are
++self-explanatory.  However, it takes a "msgid" parameter.  This is NOT
++the sequence number of messages.  It is simply a long value that is
++passed back when the response for the message is returned.  You may
++use it for anything you like.
++
++Responses come back in the function pointed to by the ipmi_recv_hndl
++field of the "handler" that you passed in to ipmi_create_user().
++Remember again, these may be running at interrupt level.  Remember to
++look at the receive type, too.
++
++From userland, you fill out an ipmi_req_t structure and use the
++IPMICTL_SEND_COMMAND ioctl.  For incoming stuff, you can use select()
++or poll() to wait for messages to come in.  However, you cannot use
++read() to get them, you must call the IPMICTL_RECEIVE_MSG with the
++ipmi_recv_t structure to actually get the message.  Remember that you
++must supply a pointer to a block of data in the msg.data field, and
++you must fill in the msg.data_len field with the size of the data.
++This gives the receiver a place to actually put the message.
++
++If the message cannot fit into the data you provide, you will get an
++EMSGSIZE error and the driver will leave the data in the receive
++queue.  If you want to get it and have it truncate the message, us
++the IPMICTL_RECEIVE_MSG_TRUNC ioctl.
++
++When you send a command (which is defined by the lowest-order bit of
++the netfn per the IPMI spec) on the IPMB bus, the driver will
++automatically assign the sequence number to the command and save the
++command.  If the response is not receive in the IPMI-specified 5
++seconds, it will generate a response automatically saying the command
++timed out.  If an unsolicited response comes in (if it was after 5
++seconds, for instance), that response will be ignored.
++
++In kernelland, after you receive a message and are done with it, you
++MUST call ipmi_free_recv_msg() on it, or you will leak messages.  Note
++that you should NEVER mess with the "done" field of a message, that is
++required to properly clean up the message.
++
++Note that when sending, there is an ipmi_request_supply_msgs() call
++that lets you supply the smi and receive message.  This is useful for
++pieces of code that need to work even if the system is out of buffers
++(the watchdog timer uses this, for instance).  You supply your own
++buffer and own free routines.  This is not recommended for normal use,
++though, since it is tricky to manage your own buffers.
++
++
++Events and Incoming Commands
++
++The driver takes care of polling for IPMI events and receiving
++commands (commands are messages that are not responses, they are
++commands that other things on the IPMB bus have sent you).  To receive
++these, you must register for them, they will not automatically be sent
++to you.
++
++To receive events, you must call ipmi_set_gets_events() and set the
++"val" to non-zero.  Any events that have been received by the driver
++since startup will immediately be delivered to the first user that
++registers for events.  After that, if multiple users are registered
++for events, they will all receive all events that come in.
++
++For receiving commands, you have to individually register commands you
++want to receive.  Call ipmi_register_for_cmd() and supply the netfn
++and command name for each command you want to receive.  Only one user
++may be registered for each netfn/cmd, but different users may register
++for different commands.
++
++From userland, equivalent IOCTLs are provided to do these functions.
++
++
++The Lower Layer (SMI) Interface
++-------------------------------
++
++As mentioned before, multiple SMI interfaces may be registered to the
++message handler, each of these is assigned an interface number when
++they register with the message handler.  They are generally assigned
++in the order they register, although if an SMI unregisters and then
++another one registers, all bets are off.
++
++The ipmi_smi.h defines the interface for SMIs, see that for more
++details.
++
++
++The KCS Driver
++--------------
++
++The KCS driver allows up to 4 KCS interfaces to be configured in the
++system.  By default, the driver will register one KCS interface at the
++spec-specified I/O port 0xca2 without interrupts.  You can change this
++at module load time (for a module) with:
++
++  insmod ipmi_kcs_drv.o kcs_ports=<port1>,<port2>... kcs_addrs=<addr1>,<addr2>
++       kcs_irqs=<irq1>,<irq2>... kcs_trydefaults=[0|1]
++
++The KCS driver supports two types of interfaces, ports (for I/O port
++based KCS interfaces) and memory addresses (for KCS interfaces in
++memory).  The driver will support both of them simultaneously, setting
++the port to zero (or just not specifying it) will allow the memory
++address to be used.  The port will override the memory address if it
++is specified and non-zero.  kcs_trydefaults sets whether the standard
++IPMI interface at 0xca2 and any interfaces specified by ACPE are
++tried.  By default, the driver tries it, set this value to zero to
++turn this off.
++
++When compiled into the kernel, the addresses can be specified on the
++kernel command line as:
++
++  ipmi_kcs=<bmc1>:<irq1>,<bmc2>:<irq2>....,[nodefault]
++
++The <bmcx> values is either "p<port>" or "m<addr>" for port or memory
++addresses.  So for instance, a KCS interface at port 0xca2 using
++interrupt 9 and a memory interface at address 0xf9827341 with no
++interrupt would be specified "ipmi_kcs=p0xca2:9,m0xf9827341".
++If you specify zero for in irq or don't specify it, the driver will
++run polled unless the software can detect the interrupt to use in the
++ACPI tables.
++
++By default, the driver will attempt to detect a KCS device at the
++spec-specified 0xca2 address and any address specified by ACPI.  If
++you want to turn this off, use the "nodefault" option.
++
++If you have high-res timers compiled into the kernel, the driver will
++use them to provide much better performance.  Note that if you do not
++have high-res timers enabled in the kernel and you don't have
++interrupts enabled, the driver will run VERY slowly.  Don't blame me,
++the KCS interface sucks.
++
++
++Other Pieces
++------------
++
++Watchdog
++
++A watchdog timer is provided that implements the Linux-standard
++watchdog timer interface.  It has three module parameters that can be
++used to control it:
++
++  insmod ipmi_watchdog timeout=<t> pretimeout=<t> action=<action type>
++      preaction=<preaction type> preop=<preop type>
++
++The timeout is the number of seconds to the action, and the pretimeout
++is the amount of seconds before the reset that the pre-timeout panic will
++occur (if pretimeout is zero, then pretimeout will not be enabled).
++
++The action may be "reset", "power_cycle", or "power_off", and
++specifies what to do when the timer times out, and defaults to
++"reset".
++
++The preaction may be "pre_smi" for an indication through the SMI
++interface, "pre_int" for an indication through the SMI with an
++interrupts, and "pre_nmi" for a NMI on a preaction.  This is how
++the driver is informed of the pretimeout.
++
++The preop may be set to "preop_none" for no operation on a pretimeout,
++"preop_panic" to set the preoperation to panic, or "preop_give_data"
++to provide data to read from the watchdog device when the pretimeout
++occurs.  A "pre_nmi" setting CANNOT be used with "preop_give_data"
++because you can't do data operations from an NMI.
++
++When preop is set to "preop_give_data", one byte comes ready to read
++on the device when the pretimeout occurs.  Select and fasync work on
++the device, as well.
++
++When compiled into the kernel, the kernel command line is available
++for configuring the watchdog:
++
++  ipmi_wdog=<timeout>[,<pretimeout>[,<option>[,<options>....]]]
++
++The options are the actions and preaction above (if an option
++controlling the same thing is specified twice, the last is taken).  An
++options "start_now" is also there, if included, the watchdog will
++start running immediately when all the drivers are ready, it doesn't
++have to have a user hooked up to start it.
++
++The watchdog will panic and start a 120 second reset timeout if it
++gets a pre-action.  During a panic or a reboot, the watchdog will
++start a 120 timer if it is running to make sure the reboot occurs.
++
++Note that if you use the NMI preaction for the watchdog, you MUST
++NOT use nmi watchdog mode 1.  If you use the NMI watchdog, you
++must use mode 2.
+--- /dev/null	2002-08-30 19:31:37.000000000 -0400
++++ linux-2.4.18-14/drivers/char/ipmi/Makefile	2003-03-27 15:26:22.000000000 -0500
+@@ -0,0 +1,20 @@
++#
++# Makefile for the ipmi drivers.
++#
++
++O_TARGET	:= ipmi.o
++
++export-objs	:= ipmi_msghandler.o ipmi_watchdog.o
++
++list-multi := ipmi_kcs_drv.o
++ipmi_kcs_drv-objs := ipmi_kcs_sm.o ipmi_kcs_intf.o
++
++obj-$(CONFIG_IPMI_HANDLER) += ipmi_msghandler.o
++obj-$(CONFIG_IPMI_DEVICE_INTERFACE) += ipmi_devintf.o
++obj-$(CONFIG_IPMI_KCS) += ipmi_kcs_drv.o
++obj-$(CONFIG_IPMI_WATCHDOG) += ipmi_watchdog.o
++
++include $(TOPDIR)/Rules.make
++
++ipmi_kcs_drv.o:	$(ipmi_kcs_drv-objs)
++	$(LD) -r -o $@ $(ipmi_kcs_drv-objs) 
+--- /dev/null	2002-08-30 19:31:37.000000000 -0400
++++ linux-2.4.18-14/drivers/char/ipmi/ipmi_devintf.c	2003-03-27 15:26:22.000000000 -0500
+@@ -0,0 +1,532 @@
++/*
++ * ipmi_devintf.c
++ *
++ * Linux device interface for the IPMI message handler.
++ *
++ * Author: MontaVista Software, Inc.
++ *         Corey Minyard <minyard@mvista.com>
++ *         source@mvista.com
++ *
++ * Copyright 2002 MontaVista Software Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License as published by the
++ *  Free Software Foundation; either version 2 of the License, or (at your
++ *  option) any later version.
++ *
++ *
++ *  THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
++ *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ *  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ *  OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ *  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ *  TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ *  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++#include <linux/config.h>
++#include <linux/module.h>
++#include <linux/errno.h>
++#include <asm/system.h>
++#include <linux/sched.h>
++#include <linux/poll.h>
++#include <linux/spinlock.h>
++#include <linux/slab.h>
++#include <linux/devfs_fs_kernel.h>
++#include <linux/ipmi.h>
++#include <asm/semaphore.h>
++#include <linux/init.h>
++
++struct ipmi_file_private
++{
++	ipmi_user_t          user;
++	spinlock_t           recv_msg_lock;
++	struct list_head     recv_msgs;
++	struct file          *file;
++	struct fasync_struct *fasync_queue;
++	wait_queue_head_t    wait;
++	struct semaphore     recv_sem;
++};
++
++static void file_receive_handler(struct ipmi_recv_msg *msg,
++				 void                 *handler_data)
++{
++	struct ipmi_file_private *priv = handler_data;
++	int                      was_empty;
++	unsigned long            flags;
++
++	spin_lock_irqsave(&(priv->recv_msg_lock), flags);
++
++	was_empty = list_empty(&(priv->recv_msgs));
++	list_add_tail(&(msg->link), &(priv->recv_msgs));
++
++	if (was_empty) {
++		wake_up_interruptible(&priv->wait);
++		kill_fasync(&priv->fasync_queue, SIGIO, POLL_IN);
++	}
++
++	spin_unlock_irqrestore(&(priv->recv_msg_lock), flags);
++}
++
++static unsigned int ipmi_poll(struct file *file, poll_table *wait)
++{
++	struct ipmi_file_private *priv = file->private_data;
++	unsigned int             mask = 0;
++	unsigned long            flags;
++
++	spin_lock_irqsave(&priv->recv_msg_lock, flags);
++
++	poll_wait(file, &priv->wait, wait);
++
++	if (! list_empty(&(priv->recv_msgs)))
++		mask |= (POLLIN | POLLRDNORM);
++
++	spin_unlock_irqrestore(&priv->recv_msg_lock, flags);
++
++	return mask;
++}
++
++static int ipmi_fasync(int fd, struct file *file, int on)
++{
++	struct ipmi_file_private *priv = file->private_data;
++	int                      result;
++
++	result = fasync_helper(fd, file, on, &priv->fasync_queue);
++
++	return (result);
++}
++
++static struct ipmi_user_hndl ipmi_hndlrs =
++{
++	ipmi_recv_hndl : file_receive_handler
++};
++
++static int ipmi_open(struct inode *inode, struct file *file)
++{
++	int                      if_num = minor(inode->i_rdev);
++	int                      rv;
++	struct ipmi_file_private *priv;
++
++
++	priv = kmalloc(sizeof(*priv), GFP_KERNEL);
++	if (!priv)
++		return -ENOMEM;
++
++	priv->file = file;
++
++	rv = ipmi_create_user(if_num,
++			      &ipmi_hndlrs,
++			      priv,
++			      &(priv->user));
++	if (rv) {
++		kfree(priv);
++		return rv;
++	}
++
++	file->private_data = priv;
++
++	spin_lock_init(&(priv->recv_msg_lock));
++	INIT_LIST_HEAD(&(priv->recv_msgs));
++	init_waitqueue_head(&priv->wait);
++	priv->fasync_queue = NULL;
++	sema_init(&(priv->recv_sem), 1);
++
++	return 0;
++}
++
++static int ipmi_release(struct inode *inode, struct file *file)
++{
++	struct ipmi_file_private *priv = file->private_data;
++	int                      rv;
++
++	rv = ipmi_destroy_user(priv->user);
++	if (rv)
++		return rv;
++
++	ipmi_fasync (-1, file, 0);
++
++	/* FIXME - free the messages in the list. */
++	kfree(priv);
++
++	return 0;
++}
++
++static int ipmi_ioctl(struct inode  *inode,
++		      struct file   *file,
++		      unsigned int  cmd,
++		      unsigned long data)
++{
++	int                      rv = -EINVAL;
++	struct ipmi_file_private *priv = file->private_data;
++
++	switch (cmd) 
++	{
++	case IPMICTL_SEND_COMMAND:
++	{
++		struct ipmi_req    req;
++		struct ipmi_addr   addr;
++		unsigned char msgdata[IPMI_MAX_MSG_LENGTH];
++
++		if (copy_from_user(&req, (void *) data, sizeof(req))) {
++			rv = -EFAULT;
++			break;
++		}
++
++		if (req.addr_len > sizeof(struct ipmi_addr))
++		{
++			rv = -EINVAL;
++			break;
++		}
++
++		if (copy_from_user(&addr, req.addr, req.addr_len)) {
++			rv = -EFAULT;
++			break;
++		}
++
++		rv = ipmi_validate_addr(&addr, req.addr_len);
++		if (rv)
++			break;
++
++		if (req.msg.data != NULL) {
++			if (req.msg.data_len > IPMI_MAX_MSG_LENGTH) {
++				rv = -EMSGSIZE;
++				break;
++			}
++
++			if (copy_from_user(&msgdata,
++					   req.msg.data,
++					   req.msg.data_len))
++			{
++				rv = -EFAULT;
++				break;
++			}
++		} else {
++			req.msg.data_len = 0;
++		}
++
++		req.msg.data = msgdata;
++
++		rv = ipmi_request(priv->user,
++				  &addr,
++				  req.msgid,
++				  &(req.msg),
++				  0);
++		break;
++	}
++
++	case IPMICTL_RECEIVE_MSG:
++	case IPMICTL_RECEIVE_MSG_TRUNC:
++	{
++		struct ipmi_recv      rsp;
++		int              addr_len;
++		struct list_head *entry;
++		struct ipmi_recv_msg  *msg;
++		unsigned long    flags;
++		
++
++		rv = 0;
++		if (copy_from_user(&rsp, (void *) data, sizeof(rsp))) {
++			rv = -EFAULT;
++			break;
++		}
++
++		/* We claim a semaphore because we don't want two
++                   users getting something from the queue at a time.
++                   Since we have to release the spinlock before we can
++                   copy the data to the user, it's possible another
++                   user will grab something from the queue, too.  Then
++                   the messages might get out of order if something
++                   fails and the message gets put back onto the
++                   queue.  This semaphore prevents that problem. */
++		down(&(priv->recv_sem));
++
++		/* Grab the message off the list. */
++		spin_lock_irqsave(&(priv->recv_msg_lock), flags);
++		if (list_empty(&(priv->recv_msgs))) {
++			spin_unlock_irqrestore(&(priv->recv_msg_lock), flags);
++			rv = -EAGAIN;
++			goto recv_err;
++		}
++		entry = priv->recv_msgs.next;
++		msg = list_entry(entry, struct ipmi_recv_msg, link);
++		list_del(entry);
++		spin_unlock_irqrestore(&(priv->recv_msg_lock), flags);
++
++		addr_len = ipmi_addr_length(msg->addr.addr_type);
++		if (rsp.addr_len < addr_len)
++		{
++			rv = -EINVAL;
++			goto recv_putback_on_err;
++		}
++
++		if (copy_to_user(rsp.addr, &(msg->addr), addr_len)) {
++			rv = -EFAULT;
++			goto recv_putback_on_err;
++		}
++		rsp.addr_len = addr_len;
++
++		rsp.recv_type = msg->recv_type;
++		rsp.msgid = msg->msgid;
++		rsp.msg.netfn = msg->msg.netfn;
++		rsp.msg.cmd = msg->msg.cmd;
++
++		if (msg->msg.data_len > 0) {
++			if (rsp.msg.data_len < msg->msg.data_len) {
++				rv = -EMSGSIZE;
++				if (cmd == IPMICTL_RECEIVE_MSG_TRUNC) {
++					msg->msg.data_len = rsp.msg.data_len;
++				} else {
++					goto recv_putback_on_err;
++				}
++			}
++
++			if (copy_to_user(rsp.msg.data,
++					 msg->msg.data,
++					 msg->msg.data_len))
++			{
++				rv = -EFAULT;
++				goto recv_putback_on_err;
++			}
++			rsp.msg.data_len = msg->msg.data_len;
++		} else {
++			rsp.msg.data_len = 0;
++		}
++
++		if (copy_to_user((void *) data, &rsp, sizeof(rsp))) {
++			rv = -EFAULT;
++			goto recv_putback_on_err;
++		}
++
++		up(&(priv->recv_sem));
++		ipmi_free_recv_msg(msg);
++		break;
++
++	recv_putback_on_err:
++		/* If we got an error, put the message back onto
++		   the head of the queue. */
++		spin_lock_irqsave(&(priv->recv_msg_lock), flags);
++		list_add(entry, &(priv->recv_msgs));
++		spin_unlock_irqrestore(&(priv->recv_msg_lock), flags);
++		up(&(priv->recv_sem));
++		break;
++
++	recv_err:
++		up(&(priv->recv_sem));
++		break;
++	}
++
++	case IPMICTL_REGISTER_FOR_CMD:
++	{
++		struct ipmi_cmdspec val;
++
++		if (copy_from_user(&val, (void *) data, sizeof(val))) {
++			rv = -EFAULT;
++			break;
++		}
++
++		rv = ipmi_register_for_cmd(priv->user, val.netfn, val.cmd);
++		break;
++	}
++
++	case IPMICTL_UNREGISTER_FOR_CMD:
++	{
++		struct ipmi_cmdspec   val;
++
++		if (copy_from_user(&val, (void *) data, sizeof(val))) {
++			rv = -EFAULT;
++			break;
++		}
++
++		rv = ipmi_unregister_for_cmd(priv->user, val.netfn, val.cmd);
++		break;
++	}
++
++	case IPMICTL_SET_GETS_EVENTS_CMD:
++	{
++		int val;
++
++		if (copy_from_user(&val, (void *) data, sizeof(val))) {
++			rv = -EFAULT;
++			break;
++		}
++
++		rv = ipmi_set_gets_events(priv->user, val);
++		break;
++	}
++
++	case IPMICTL_SET_MY_ADDRESS_CMD:
++	{
++		unsigned int val;
++
++		if (copy_from_user(&val, (void *) data, sizeof(val))) {
++			rv = -EFAULT;
++			break;
++		}
++
++		ipmi_set_my_address(priv->user, val);
++		rv = 0;
++		break;
++	}
++
++	case IPMICTL_GET_MY_ADDRESS_CMD:
++	{
++		unsigned int val;
++
++		val = ipmi_get_my_address(priv->user);
++
++		if (copy_to_user((void *) data, &val, sizeof(val))) {
++			rv = -EFAULT;
++			break;
++		}
++		rv = 0;
++		break;
++	}
++
++	case IPMICTL_SET_MY_LUN_CMD:
++	{
++		unsigned int val;
++
++		if (copy_from_user(&val, (void *) data, sizeof(val))) {
++			rv = -EFAULT;
++			break;
++		}
++
++		ipmi_set_my_LUN(priv->user, val);
++		rv = 0;
++		break;
++	}
++
++	case IPMICTL_GET_MY_LUN_CMD:
++	{
++		unsigned int val;
++
++		val = ipmi_get_my_LUN(priv->user);
++
++		if (copy_to_user((void *) data, &val, sizeof(val))) {
++			rv = -EFAULT;
++			break;
++		}
++		rv = 0;
++		break;
++	}
++
++	}
++  
++	return rv;
++}
++
++
++static struct file_operations ipmi_fops = {
++	owner:   THIS_MODULE,
++	ioctl:   ipmi_ioctl,
++	open:    ipmi_open,
++	release: ipmi_release,
++	fasync:  ipmi_fasync,
++	poll:    ipmi_poll
++};
++
++#define DEVICE_NAME     "ipmidev"
++
++static int ipmi_major = 0;
++MODULE_PARM(ipmi_major, "i");
++
++static devfs_handle_t devfs_handle;
++
++#define MAX_DEVICES 10
++static devfs_handle_t handles[MAX_DEVICES];
++
++static void ipmi_new_smi(int if_num)
++{
++	char name[2];
++
++	if (if_num > MAX_DEVICES)
++		return;
++
++	name[0] = if_num + '0';
++	name[1] = '\0';
++
++	handles[if_num] = devfs_register(devfs_handle, name, DEVFS_FL_NONE,
++					 ipmi_major, if_num,
++					 S_IFCHR | S_IRUSR | S_IWUSR,
++					 &ipmi_fops, NULL);
++}
++
++static void ipmi_smi_gone(int if_num)
++{
++	if (if_num > MAX_DEVICES)
++		return;
++
++	devfs_unregister(handles[if_num]);
++}
++
++static struct ipmi_smi_watcher smi_watcher =
++{
++	new_smi  : ipmi_new_smi,
++	smi_gone : ipmi_smi_gone
++};
++
++static __init int init_ipmi_devintf(void)
++{
++	int rv;
++
++	if (ipmi_major < 0)
++		return -EINVAL;
++
++	rv = register_chrdev(ipmi_major, DEVICE_NAME, &ipmi_fops);
++	if (rv < 0) {
++		printk(KERN_ERR "ipmi: can't get major %d\n", ipmi_major);
++		return rv;
++	}
++
++	if (ipmi_major == 0) {
++		ipmi_major = rv;
++	}
++
++	devfs_handle = devfs_mk_dir(NULL, DEVICE_NAME, NULL);
++
++	rv = ipmi_smi_watcher_register(&smi_watcher);
++	if (rv) {
++		unregister_chrdev(ipmi_major, DEVICE_NAME);
++		printk(KERN_WARNING "ipmi: can't register smi watcher");
++		return rv;
++	}
++
++	printk(KERN_INFO "ipmi: device interface at char major %d\n",
++	       ipmi_major);
++
++	return 0;
++}
++module_init(init_ipmi_devintf);
++
++static __exit void cleanup_ipmi(void)
++{
++	ipmi_smi_watcher_unregister(&smi_watcher);
++	devfs_unregister(devfs_handle);
++	unregister_chrdev(ipmi_major, DEVICE_NAME);
++}
++module_exit(cleanup_ipmi);
++#ifndef MODULE
++static __init int ipmi_setup (char *str)
++{
++	int x;
++
++	if (get_option (&str, &x)) {
++		/* ipmi=x sets the major number to x. */
++		ipmi_major = x;
++	} else if (!strcmp(str, "off")) {
++		ipmi_major = -1;
++	}
++
++	return 1;
++}
++#endif
++
++__setup("ipmi=", ipmi_setup);
++MODULE_LICENSE("GPL");
+--- /dev/null	2002-08-30 19:31:37.000000000 -0400
++++ linux-2.4.18-14/drivers/char/ipmi/ipmi_kcs_intf.c	2003-03-27 15:26:22.000000000 -0500
+@@ -0,0 +1,1243 @@
++/*
++ * ipmi_kcs_intf.c
++ *
++ * The interface to the IPMI driver for the KCS.
++ *
++ * Author: MontaVista Software, Inc.
++ *         Corey Minyard <minyard@mvista.com>
++ *         source@mvista.com
++ *
++ * Copyright 2002 MontaVista Software Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License as published by the
++ *  Free Software Foundation; either version 2 of the License, or (at your
++ *  option) any later version.
++ *
++ *
++ *  THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
++ *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ *  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ *  OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ *  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ *  TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ *  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++/*
++ * This file holds the "policy" for the interface to the KCS state
++ * machine.  It does the configuration, handles timers and interrupts,
++ * and drives the real KCS state machine.
++ */
++
++#include <linux/config.h>
++#include <linux/module.h>
++#include <asm/system.h>
++#include <linux/sched.h>
++#include <linux/timer.h>
++#include <linux/errno.h>
++#include <linux/spinlock.h>
++#include <linux/slab.h>
++#include <linux/delay.h>
++#include <linux/list.h>
++#include <linux/ioport.h>
++#ifdef CONFIG_HIGH_RES_TIMERS
++#include <linux/hrtime.h>
++#endif
++#include <linux/interrupt.h>
++#include <linux/ipmi_smi.h>
++#include <asm/io.h>
++#include "ipmi_kcs_sm.h"
++#include <linux/init.h>
++
++/* Measure times between events in the driver. */
++#undef DEBUG_TIMING
++
++#ifdef CONFIG_IPMI_KCS
++/* This forces a dependency to the config file for this option. */
++#endif
++
++enum kcs_intf_state {
++	KCS_NORMAL,
++	KCS_GETTING_FLAGS,
++	KCS_GETTING_EVENTS,
++	KCS_CLEARING_FLAGS,
++	KCS_CLEARING_FLAGS_THEN_SET_IRQ,
++	KCS_GETTING_MESSAGES,
++	KCS_ENABLE_INTERRUPTS1,
++	KCS_ENABLE_INTERRUPTS2
++	/* FIXME - add watchdog stuff. */
++};
++
++struct kcs_info
++{
++	ipmi_smi_t          intf;
++	struct kcs_data     *kcs_sm;
++	spinlock_t          kcs_lock;
++	spinlock_t          msg_lock;
++	struct list_head    xmit_msgs;
++	struct list_head    hp_xmit_msgs;
++	struct ipmi_smi_msg *curr_msg;
++	enum kcs_intf_state kcs_state;
++
++	/* Flags from the last GET_MSG_FLAGS command, used when an ATTN
++	   is set to hold the flags until we are done handling everything
++	   from the flags. */
++#define RECEIVE_MSG_AVAIL	0x01
++#define EVENT_MSG_BUFFER_FULL	0x02
++#define WDT_PRE_TIMEOUT_INT	0x08
++	unsigned char       msg_flags;
++
++	/* If set to true, this will request events the next time the
++	   state machine is idle. */
++	atomic_t            req_events;
++
++	/* If true, run the state machine to completion on every send
++	   call.  Generally used after a panic to make sure stuff goes
++	   out. */
++	int                 run_to_completion;
++
++	/* The I/O port of a KCS interface. */
++	int                 port;
++
++	/* zero if no irq; */
++	int                 irq;
++
++	/* The physical and remapped memory addresses of a KCS interface. */
++	unsigned long	    physaddr;
++	unsigned char	    *addr;
++
++	/* The timer for this kcs. */
++	struct timer_list   kcs_timer;
++
++	/* The time (in jiffies) the last timeout occurred at. */
++	unsigned long       last_timeout_jiffies;
++
++	/* Used to gracefully stop the timer without race conditions. */
++	volatile int        stop_operation;
++	volatile int        timer_stopped;
++
++	/* The driver will disable interrupts when it gets into a
++	   situation where it cannot handle messages due to lack of
++	   memory.  Once that situation clears up, it will re-enable
++	   interupts. */
++	int                 interrupt_disabled;
++};
++
++static void deliver_recv_msg(struct kcs_info *kcs_info, struct ipmi_smi_msg *msg)
++{
++	/* Deliver the message to the upper layer with the lock
++           released. */
++	spin_unlock(&(kcs_info->kcs_lock));
++	ipmi_smi_msg_received(kcs_info->intf, msg);
++	spin_lock(&(kcs_info->kcs_lock));
++}
++
++static void return_hosed_msg(struct kcs_info *kcs_info)
++{
++	struct ipmi_smi_msg *msg = kcs_info->curr_msg;
++
++	/* Make it a reponse */
++	msg->rsp[0] = msg->data[0] | 4;
++	msg->rsp[1] = msg->data[1];
++	msg->rsp[2] = 0xFF; /* Unknown error. */
++	msg->rsp_size = 3;
++			
++	kcs_info->curr_msg = NULL;
++	deliver_recv_msg(kcs_info, msg);
++}
++
++static enum kcs_result start_next_msg(struct kcs_info *kcs_info)
++{
++	int              rv;
++	struct list_head *entry = NULL;
++#ifdef DEBUG_TIMING
++	struct timeval t;
++#endif
++
++	/* No need to save flags, we aleady have interrupts off and we
++	   already hold the KCS lock. */
++	spin_lock(&(kcs_info->msg_lock));
++	
++	/* Pick the high priority queue first. */
++	if (! list_empty(&(kcs_info->hp_xmit_msgs))) {
++		entry = kcs_info->hp_xmit_msgs.next;
++	} else if (! list_empty(&(kcs_info->xmit_msgs))) {
++		entry = kcs_info->xmit_msgs.next;
++	}
++
++	if (!entry) {
++		kcs_info->curr_msg = NULL;
++		rv = KCS_SM_IDLE;
++	} else {
++		int err;
++
++		list_del(entry);
++		kcs_info->curr_msg = list_entry(entry,
++						struct ipmi_smi_msg,
++						link);
++#ifdef DEBUG_TIMING
++		do_gettimeofday(&t);
++		printk("**Start2: %d.%9.9d\n", t.tv_sec, t.tv_usec);
++#endif
++		err = start_kcs_transaction(kcs_info->kcs_sm,
++					   kcs_info->curr_msg->data,
++					   kcs_info->curr_msg->data_size);
++		if (err) {
++			return_hosed_msg(kcs_info);
++		}
++
++		rv = KCS_CALL_WITHOUT_DELAY;
++	}
++	spin_unlock(&(kcs_info->msg_lock));
++
++	return rv;
++}
++
++static void start_enable_irq(struct kcs_info *kcs_info)
++{
++	unsigned char msg[2];
++
++	/* If we are enabling interrupts, we have to tell the
++	   BMC to use them. */
++	msg[0] = (IPMI_NETFN_APP_REQUEST << 2);
++	msg[1] = IPMI_GET_BMC_GLOBAL_ENABLES_CMD;
++
++	start_kcs_transaction(kcs_info->kcs_sm, msg, 2);
++	kcs_info->kcs_state = KCS_ENABLE_INTERRUPTS1;
++}
++
++static void start_clear_flags(struct kcs_info *kcs_info)
++{
++	unsigned char msg[3];
++
++	/* Make sure the watchdog pre-timeout flag is not set at startup. */
++	msg[0] = (IPMI_NETFN_APP_REQUEST << 2);
++	msg[1] = IPMI_CLEAR_MSG_FLAGS_CMD;
++	msg[2] = WDT_PRE_TIMEOUT_INT;
++
++	start_kcs_transaction(kcs_info->kcs_sm, msg, 3);
++	kcs_info->kcs_state = KCS_CLEARING_FLAGS;
++}
++
++/* When we have a situtaion where we run out of memory and cannot
++   allocate messages, we just leave them in the BMC and run the system
++   polled until we can allocate some memory.  Once we have some
++   memory, we will re-enable the interrupt. */
++static inline void disable_kcs_irq(struct kcs_info *kcs_info)
++{
++	if ((kcs_info->irq) && (!kcs_info->interrupt_disabled)) {
++		disable_irq_nosync(kcs_info->irq);
++		kcs_info->interrupt_disabled = 1;
++	}
++}
++
++static inline void enable_kcs_irq(struct kcs_info *kcs_info)
++{
++	if ((kcs_info->irq) && (kcs_info->interrupt_disabled)) {
++		enable_irq(kcs_info->irq);
++		kcs_info->interrupt_disabled = 0;
++	}
++}
++
++static void handle_flags(struct kcs_info *kcs_info)
++{
++	if (kcs_info->msg_flags & WDT_PRE_TIMEOUT_INT) {
++		/* Watchdog pre-timeout */
++		start_clear_flags(kcs_info);
++		kcs_info->msg_flags &= ~WDT_PRE_TIMEOUT_INT;
++		spin_unlock(&(kcs_info->kcs_lock));
++		ipmi_smi_watchdog_pretimeout(kcs_info->intf);
++		spin_lock(&(kcs_info->kcs_lock));
++	} else if (kcs_info->msg_flags & RECEIVE_MSG_AVAIL) {
++		/* Messages available. */
++		kcs_info->curr_msg = ipmi_alloc_smi_msg();
++		if (!kcs_info->curr_msg) {
++			disable_kcs_irq(kcs_info);
++			kcs_info->kcs_state = KCS_NORMAL;
++			return;
++		}
++		enable_kcs_irq(kcs_info);
++
++		kcs_info->curr_msg->data[0] = (IPMI_NETFN_APP_REQUEST << 2);
++		kcs_info->curr_msg->data[1] = IPMI_GET_MSG_CMD;
++		kcs_info->curr_msg->data_size = 2;
++
++		start_kcs_transaction(kcs_info->kcs_sm,
++				      kcs_info->curr_msg->data,
++				      kcs_info->curr_msg->data_size);
++		kcs_info->kcs_state = KCS_GETTING_MESSAGES;
++	} else if (kcs_info->msg_flags & EVENT_MSG_BUFFER_FULL) {
++		/* Events available. */
++		kcs_info->curr_msg = ipmi_alloc_smi_msg();
++		if (!kcs_info->curr_msg) {
++			disable_kcs_irq(kcs_info);
++			kcs_info->kcs_state = KCS_NORMAL;
++			return;
++		}
++		enable_kcs_irq(kcs_info);
++
++		kcs_info->curr_msg->data[0] = (IPMI_NETFN_APP_REQUEST << 2);
++		kcs_info->curr_msg->data[1] = IPMI_READ_EVENT_MSG_BUFFER_CMD;
++		kcs_info->curr_msg->data_size = 2;
++
++		start_kcs_transaction(kcs_info->kcs_sm,
++				      kcs_info->curr_msg->data,
++				      kcs_info->curr_msg->data_size);
++		kcs_info->kcs_state = KCS_GETTING_EVENTS;
++	} else {
++		kcs_info->kcs_state = KCS_NORMAL;
++	}
++}
++
++static void handle_transaction_done(struct kcs_info *kcs_info)
++{
++	struct ipmi_smi_msg *msg;
++#ifdef DEBUG_TIMING
++	struct timeval t;
++
++	do_gettimeofday(&t);
++	printk("**Done: %d.%9.9d\n", t.tv_sec, t.tv_usec);
++#endif
++	switch (kcs_info->kcs_state) {
++	case KCS_NORMAL:
++		kcs_info->curr_msg->rsp_size
++			= kcs_get_result(kcs_info->kcs_sm,
++					 kcs_info->curr_msg->rsp,
++					 IPMI_MAX_MSG_LENGTH);
++		
++		/* Do this here becase deliver_recv_msg() releases the
++		   lock, and a new message can be put in during the
++		   time the lock is released. */
++		msg = kcs_info->curr_msg;
++		kcs_info->curr_msg = NULL;
++		deliver_recv_msg(kcs_info, msg);
++		break;
++		
++	case KCS_GETTING_FLAGS:
++	{
++		unsigned char msg[4];
++		unsigned int  len;
++
++		/* We got the flags from the KCS, now handle them. */
++		len = kcs_get_result(kcs_info->kcs_sm, msg, 4);
++		if (msg[2] != 0) {
++			/* Error fetching flags, just give up for
++			   now. */
++			kcs_info->kcs_state = KCS_NORMAL;
++		} else if (len < 3) {
++			/* Hmm, no flags.  That's technically illegal, but
++			   don't use uninitialized data. */
++			kcs_info->kcs_state = KCS_NORMAL;
++		} else {
++			kcs_info->msg_flags = msg[3];
++			handle_flags(kcs_info);
++		}
++		break;
++	}
++
++	case KCS_CLEARING_FLAGS:
++	case KCS_CLEARING_FLAGS_THEN_SET_IRQ:
++	{
++		unsigned char msg[3];
++
++		/* We cleared the flags. */
++		kcs_get_result(kcs_info->kcs_sm, msg, 3);
++		if (msg[2] != 0) {
++			/* Error clearing flags */
++			printk(KERN_WARNING
++			       "ipmi_kcs: Error clearing flags: %2.2x\n",
++			       msg[2]);
++		}
++		if (kcs_info->kcs_state == KCS_CLEARING_FLAGS_THEN_SET_IRQ)
++			start_enable_irq(kcs_info);
++		else
++			kcs_info->kcs_state = KCS_NORMAL;
++		break;
++	}
++
++	case KCS_GETTING_EVENTS:
++	{
++		kcs_info->curr_msg->rsp_size
++			= kcs_get_result(kcs_info->kcs_sm,
++					 kcs_info->curr_msg->rsp,
++					 IPMI_MAX_MSG_LENGTH);
++
++		/* Do this here becase deliver_recv_msg() releases the
++		   lock, and a new message can be put in during the
++		   time the lock is released. */
++		msg = kcs_info->curr_msg;
++		kcs_info->curr_msg = NULL;
++		if (msg->rsp[2] != 0) {
++			/* Error getting event, probably done. */
++			msg->done(msg);
++
++			/* Take off the event flag. */
++			kcs_info->msg_flags &= ~EVENT_MSG_BUFFER_FULL;
++		} else {
++			deliver_recv_msg(kcs_info, msg);
++		}
++		handle_flags(kcs_info);
++		break;
++	}
++
++	case KCS_GETTING_MESSAGES:
++	{
++		kcs_info->curr_msg->rsp_size
++			= kcs_get_result(kcs_info->kcs_sm,
++					 kcs_info->curr_msg->rsp,
++					 IPMI_MAX_MSG_LENGTH);
++
++		/* Do this here becase deliver_recv_msg() releases the
++		   lock, and a new message can be put in during the
++		   time the lock is released. */
++		msg = kcs_info->curr_msg;
++		kcs_info->curr_msg = NULL;
++		if (msg->rsp[2] != 0) {
++			/* Error getting event, probably done. */
++			msg->done(msg);
++
++			/* Take off the msg flag. */
++			kcs_info->msg_flags &= ~RECEIVE_MSG_AVAIL;
++		} else {
++			deliver_recv_msg(kcs_info, msg);
++		}
++		handle_flags(kcs_info);
++		break;
++	}
++
++	case KCS_ENABLE_INTERRUPTS1:
++	{
++		unsigned char msg[4];
++
++		/* We got the flags from the KCS, now handle them. */
++		kcs_get_result(kcs_info->kcs_sm, msg, 4);
++		if (msg[2] != 0) {
++			printk(KERN_WARNING
++			       "ipmi_kcs: Could not enable interrupts"
++			       ", failed get, using polled mode.\n");
++			kcs_info->kcs_state = KCS_NORMAL;
++		} else {
++			msg[0] = (IPMI_NETFN_APP_REQUEST << 2);
++			msg[1] = IPMI_SET_BMC_GLOBAL_ENABLES_CMD;
++			msg[2] = msg[3] | 1; /* enable msg queue int */
++			start_kcs_transaction(kcs_info->kcs_sm, msg,3);
++			kcs_info->kcs_state = KCS_ENABLE_INTERRUPTS2;
++		}
++		break;
++	}
++
++	case KCS_ENABLE_INTERRUPTS2:
++	{
++		unsigned char msg[4];
++
++		/* We got the flags from the KCS, now handle them. */
++		kcs_get_result(kcs_info->kcs_sm, msg, 4);
++		if (msg[2] != 0) {
++			printk(KERN_WARNING
++			       "ipmi_kcs: Could not enable interrupts"
++			       ", failed set, using polled mode.\n");
++		}
++		kcs_info->kcs_state = KCS_NORMAL;
++		break;
++	}
++	}
++}
++
++/* Called on timeouts and events.  Timeouts should pass the elapsed
++   time, interrupts should pass in zero. */
++static enum kcs_result kcs_event_handler(struct kcs_info *kcs_info, int time)
++{
++	enum kcs_result kcs_result;
++
++ restart:
++	/* There used to be a loop here that waited a little while
++	   (around 25us) before giving up.  That turned out to be
++	   pointless, the minimum delays I was seeing were in the 300us
++	   range, which is far too long to wait in an interrupt.  So
++	   we just run until the state machine tells us something
++	   happened or it needs a delay. */
++	kcs_result = kcs_event(kcs_info->kcs_sm, time);
++	time = 0;
++	while (kcs_result == KCS_CALL_WITHOUT_DELAY)
++	{
++		kcs_result = kcs_event(kcs_info->kcs_sm, 0);
++	}
++
++	if (kcs_result == KCS_TRANSACTION_COMPLETE)
++	{
++		handle_transaction_done(kcs_info);
++		kcs_result = kcs_event(kcs_info->kcs_sm, 0);
++	}
++	else if (kcs_result == KCS_SM_HOSED)
++	{
++		if (kcs_info->curr_msg != NULL) {
++			/* If we were handling a user message, format
++                           a response to send to the upper layer to
++                           tell it about the error. */
++			return_hosed_msg(kcs_info);
++		}
++		kcs_result = kcs_event(kcs_info->kcs_sm, 0);
++		kcs_info->kcs_state = KCS_NORMAL;
++	}
++
++	/* We prefer handling attn over new messages. */
++	if (kcs_result == KCS_ATTN)
++	{
++		unsigned char msg[2];
++
++		/* Got a attn, send down a get message flags to see
++                   what's causing it.  It would be better to handle
++                   this in the upper layer, but due to the way
++                   interrupts work with the KCS, that's not really
++                   possible. */
++		msg[0] = (IPMI_NETFN_APP_REQUEST << 2);
++		msg[1] = IPMI_GET_MSG_FLAGS_CMD;
++
++		start_kcs_transaction(kcs_info->kcs_sm, msg, 2);
++		kcs_info->kcs_state = KCS_GETTING_FLAGS;
++		goto restart;
++	}
++
++	/* If we are currently idle, try to start the next message. */
++	if (kcs_result == KCS_SM_IDLE) {
++		kcs_result = start_next_msg(kcs_info);
++		if (kcs_result != KCS_SM_IDLE)
++			goto restart;
++        }
++
++	if ((kcs_result == KCS_SM_IDLE)
++	    && (atomic_read(&kcs_info->req_events)))
++	{
++		/* We are idle and the upper layer requested that I fetch
++		   events, so do so. */
++		unsigned char msg[2];
++
++		atomic_set(&kcs_info->req_events, 0);
++		msg[0] = (IPMI_NETFN_APP_REQUEST << 2);
++		msg[1] = IPMI_GET_MSG_FLAGS_CMD;
++
++		start_kcs_transaction(kcs_info->kcs_sm, msg, 2);
++		kcs_info->kcs_state = KCS_GETTING_FLAGS;
++		goto restart;
++	}
++
++	return kcs_result;
++}
++
++static void sender(void                *send_info,
++		   struct ipmi_smi_msg *msg,
++		   int                 priority)
++{
++	struct kcs_info *kcs_info = (struct kcs_info *) send_info;
++	enum kcs_result result;
++	unsigned long   flags;
++#ifdef DEBUG_TIMING
++	struct timeval t;
++#endif
++
++	spin_lock_irqsave(&(kcs_info->msg_lock), flags);
++#ifdef DEBUG_TIMING
++	do_gettimeofday(&t);
++	printk("**Enqueue: %d.%9.9d\n", t.tv_sec, t.tv_usec);
++#endif
++
++	if (kcs_info->run_to_completion) {
++		/* If we are running to completion, then throw it in
++		   the list and run transactions until everything is
++		   clear.  Priority doesn't matter here. */
++		list_add_tail(&(msg->link), &(kcs_info->xmit_msgs));
++
++		/* We have to release the msg lock and claim the kcs
++		   lock in this case, because of race conditions. */
++		spin_unlock_irqrestore(&(kcs_info->msg_lock), flags);
++
++		spin_lock_irqsave(&(kcs_info->kcs_lock), flags);
++		result = kcs_event_handler(kcs_info, 0);
++		while (result != KCS_SM_IDLE) {
++			udelay(500);
++			result = kcs_event_handler(kcs_info, 500);
++		}
++		spin_unlock_irqrestore(&(kcs_info->kcs_lock), flags);
++		return;
++	} else {
++		if (priority > 0) {
++			list_add_tail(&(msg->link), &(kcs_info->hp_xmit_msgs));
++		} else {
++			list_add_tail(&(msg->link), &(kcs_info->xmit_msgs));
++		}
++	}
++	spin_unlock_irqrestore(&(kcs_info->msg_lock), flags);
++
++	spin_lock_irqsave(&(kcs_info->kcs_lock), flags);
++	if ((kcs_info->kcs_state == KCS_NORMAL)
++	    && (kcs_info->curr_msg == NULL))
++	{
++		start_next_msg(kcs_info);
++	}
++	spin_unlock_irqrestore(&(kcs_info->kcs_lock), flags);
++}
++
++static void set_run_to_completion(void *send_info, int i_run_to_completion)
++{
++	struct kcs_info *kcs_info = (struct kcs_info *) send_info;
++	enum kcs_result result;
++	unsigned long   flags;
++
++	spin_lock_irqsave(&(kcs_info->kcs_lock), flags);
++
++	kcs_info->run_to_completion = i_run_to_completion;
++	if (i_run_to_completion) {
++		result = kcs_event_handler(kcs_info, 0);
++		while (result != KCS_SM_IDLE) {
++			udelay(500);
++			result = kcs_event_handler(kcs_info, 500);
++		}
++	}
++
++	spin_unlock_irqrestore(&(kcs_info->kcs_lock), flags);
++}
++
++static void request_events(void *send_info)
++{
++	struct kcs_info *kcs_info = (struct kcs_info *) send_info;
++
++	atomic_set(&kcs_info->req_events, 1);
++}
++
++static int new_user(void *send_info)
++{
++	if (!try_inc_mod_count(THIS_MODULE))
++		return -EBUSY;
++	return 0;
++}
++
++static void user_left(void *send_info)
++{
++	MOD_DEC_USE_COUNT;
++}
++
++/* Call every 10 ms. */
++#define KCS_TIMEOUT_TIME_USEC	10000
++#define KCS_USEC_PER_JIFFY	(1000000/HZ)
++#define KCS_TIMEOUT_JIFFIES	(KCS_TIMEOUT_TIME_USEC/KCS_USEC_PER_JIFFY)
++#define KCS_SHORT_TIMEOUT_USEC  500 /* .5ms when the SM request a
++                                       short timeout */
++static int initialized = 0;
++
++static void kcs_timeout(unsigned long data)
++{
++	struct kcs_info *kcs_info = (struct kcs_info *) data;
++	enum kcs_result kcs_result;
++	unsigned long   flags;
++	unsigned long   jiffies_now;
++	unsigned long   time_diff;
++#ifdef DEBUG_TIMING
++	struct timeval t;
++#endif
++
++	if (kcs_info->stop_operation) {
++		kcs_info->timer_stopped = 1;
++		return;
++	}
++
++	spin_lock_irqsave(&(kcs_info->kcs_lock), flags);
++#ifdef DEBUG_TIMING
++	do_gettimeofday(&t);
++	printk("**Timer: %d.%9.9d\n", t.tv_sec, t.tv_usec);
++#endif
++	jiffies_now = jiffies;
++	time_diff = ((jiffies_now - kcs_info->last_timeout_jiffies)
++		     * KCS_USEC_PER_JIFFY);
++	kcs_result = kcs_event_handler(kcs_info, time_diff);
++
++	spin_unlock_irqrestore(&(kcs_info->kcs_lock), flags);
++
++	kcs_info->last_timeout_jiffies = jiffies_now;
++
++	if ((kcs_info->irq) && (! kcs_info->interrupt_disabled)) {
++		/* Running with interrupts, only do long timeouts. */
++		kcs_info->kcs_timer.expires = jiffies + KCS_TIMEOUT_JIFFIES;
++		goto do_add_timer;
++	}
++
++	/* If the state machine asks for a short delay, then shorten
++           the timer timeout. */
++#ifdef CONFIG_HIGH_RES_TIMERS
++	if (kcs_result == KCS_CALL_WITH_DELAY) {
++		kcs_info->kcs_timer.sub_expires
++			+= usec_to_arch_cycles(KCS_SHORT_TIMEOUT_USEC);
++		while (kcs_info->kcs_timer.sub_expires >= cycles_per_jiffies) {
++			kcs_info->kcs_timer.expires++;
++			kcs_info->kcs_timer.sub_expires -= cycles_per_jiffies;
++		}
++	} else {
++		kcs_info->kcs_timer.expires = jiffies + KCS_TIMEOUT_JIFFIES;
++	}
++#else
++	/* If requested, take the shortest delay possible */
++	if (kcs_result == KCS_CALL_WITH_DELAY) {
++		kcs_info->kcs_timer.expires = jiffies + 1;
++	} else {
++		kcs_info->kcs_timer.expires = jiffies + KCS_TIMEOUT_JIFFIES;
++	}
++#endif
++
++ do_add_timer:
++	add_timer(&(kcs_info->kcs_timer));
++}
++
++static void kcs_irq_handler(int irq, void *data, struct pt_regs *regs)
++{
++	struct kcs_info *kcs_info = (struct kcs_info *) data;
++	unsigned long   flags;
++#ifdef DEBUG_TIMING
++	struct timeval t;
++#endif
++
++	spin_lock_irqsave(&(kcs_info->kcs_lock), flags);
++	if (kcs_info->stop_operation)
++		goto out;
++
++#ifdef DEBUG_TIMING
++	do_gettimeofday(&t);
++	printk("**Interrupt: %d.%9.9d\n", t.tv_sec, t.tv_usec);
++#endif
++	kcs_event_handler(kcs_info, 0);
++ out:
++	spin_unlock_irqrestore(&(kcs_info->kcs_lock), flags);
++}
++
++static struct ipmi_smi_handlers handlers =
++{
++	sender:		       sender,
++	request_events:        request_events,
++	new_user:	       new_user,
++	user_left:	       user_left,
++	set_run_to_completion: set_run_to_completion
++};
++
++static unsigned char ipmi_kcs_dev_rev;
++static unsigned char ipmi_kcs_fw_rev_major;
++static unsigned char ipmi_kcs_fw_rev_minor;
++static unsigned char ipmi_version_major;
++static unsigned char ipmi_version_minor;
++
++extern int kcs_dbg;
++static int ipmi_kcs_detect_hardware(unsigned int port,
++				    unsigned char *addr,
++				    struct kcs_data *data)
++{
++	unsigned char   msg[2];
++	unsigned char   resp[IPMI_MAX_MSG_LENGTH];
++	unsigned long   resp_len;
++	enum kcs_result kcs_result;
++
++	/* It's impossible for the KCS status register to be all 1's,
++	   (assuming a properly functioning, self-initialized BMC)
++	   but that's what you get from reading a bogus address, so we
++	   test that first. */
++
++	if (port) {
++		if (inb(port+1) == 0xff) return -ENODEV; 
++	} else { 
++		if (readb(addr+1) == 0xff) return -ENODEV; 
++	}
++
++	/* Do a Get Device ID command, since it comes back with some
++	   useful info. */
++	msg[0] = IPMI_NETFN_APP_REQUEST << 2;
++	msg[1] = IPMI_GET_DEVICE_ID_CMD;
++	start_kcs_transaction(data, msg, 2);
++	
++	kcs_result = kcs_event(data, 0);
++	for (;;)
++	{
++		if (kcs_result == KCS_CALL_WITH_DELAY) {
++			udelay(100);
++			kcs_result = kcs_event(data, 100);
++		}
++		else if (kcs_result == KCS_CALL_WITHOUT_DELAY)
++		{
++			kcs_result = kcs_event(data, 0);
++		}
++		else
++			break;
++	}
++	if (kcs_result == KCS_SM_HOSED) {
++		/* We couldn't get the state machine to run, so whatever's at
++		   the port is probably not an IPMI KCS interface. */
++		return -ENODEV;
++	}
++	/* Otherwise, we got some data. */
++	resp_len = kcs_get_result(data, resp, IPMI_MAX_MSG_LENGTH);
++	if (resp_len < 6)
++		/* That's odd, it should be longer. */
++		return -EINVAL;
++	
++	if ((resp[1] != IPMI_GET_DEVICE_ID_CMD) || (resp[2] != 0))
++		/* That's odd, it shouldn't be able to fail. */
++		return -EINVAL;
++	
++	ipmi_kcs_dev_rev = resp[4] & 0xf;
++	ipmi_kcs_fw_rev_major = resp[5] & 0x7f;
++	ipmi_kcs_fw_rev_minor = resp[6];
++	ipmi_version_major = resp[7] & 0xf;
++	ipmi_version_minor = resp[7] >> 4;
++
++	return 0;
++}
++
++/* There can be 4 IO ports passed in (with or without IRQs), 4 addresses,
++   a default IO port, and 1 ACPI/SPMI address.  That sets KCS_MAX_DRIVERS */
++
++#define KCS_MAX_PARMS 4
++#define KCS_MAX_DRIVERS ((KCS_MAX_PARMS * 2) + 2)
++static struct kcs_info *kcs_infos[KCS_MAX_DRIVERS] =
++{ NULL, NULL, NULL, NULL };
++
++#define DEVICE_NAME "ipmi_kcs"
++
++#define DEFAULT_IO_PORT 0xca2
++
++static int kcs_trydefaults = 1;
++static unsigned long kcs_addrs[KCS_MAX_PARMS] = { 0, 0, 0, 0 };
++static int kcs_ports[KCS_MAX_PARMS] = { 0, 0, 0, 0 };
++static int kcs_irqs[KCS_MAX_PARMS] = { 0, 0, 0, 0 };
++
++MODULE_PARM(kcs_trydefaults, "i");
++MODULE_PARM(kcs_addrs, "1-4l");
++MODULE_PARM(kcs_irqs, "1-4i");
++MODULE_PARM(kcs_ports, "1-4i");
++
++/* Returns 0 if initialized, or negative on an error. */
++static int init_one_kcs(int kcs_port, 
++			int irq, 
++			unsigned long kcs_physaddr,
++			struct kcs_info **kcs)
++{
++	int		rv;
++	struct kcs_info *new_kcs;
++
++	/* Did anything get passed in at all?  Both == zero disables the
++	   driver. */
++
++	if (!(kcs_port || kcs_physaddr)) 
++		return -ENODEV;
++	
++	/* Only initialize a port OR a physical address on this call.
++	   Also, IRQs can go with either ports or addresses. */
++
++	if (kcs_port && kcs_physaddr)
++		return -EINVAL;
++
++	new_kcs = kmalloc(kcs_size(), GFP_KERNEL);
++	if (!new_kcs) {
++		printk(KERN_ERR "ipmi_kcs: out of memory\n");
++		return -ENOMEM;
++	}
++
++	/* So we know not to free it unless we have allocated one. */
++	new_kcs->kcs_sm = NULL;
++
++	new_kcs->addr = NULL;
++	new_kcs->physaddr = kcs_physaddr;
++	new_kcs->port = kcs_port;
++
++	if (kcs_port) {
++		if (request_region(kcs_port, 2, DEVICE_NAME) == NULL) {
++			kfree(new_kcs);
++			printk(KERN_ERR 
++			       "ipmi_kcs: can't reserve port @ 0x%4.4x\n",
++		       	       kcs_port);
++			return -EIO;
++		}
++	} else {
++		if (request_mem_region(kcs_physaddr, 2, DEVICE_NAME) == NULL) {
++			kfree(new_kcs);
++			printk(KERN_ERR 
++			       "ipmi_kcs: can't reserve memory @ 0x%lx\n",
++		       	       kcs_physaddr);
++			return -EIO;
++		}
++		if ((new_kcs->addr = ioremap(kcs_physaddr, 2)) == NULL) {
++			kfree(new_kcs);
++			printk(KERN_ERR 
++			       "ipmi_kcs: can't remap memory at 0x%lx\n",
++		       	       kcs_physaddr);
++			return -EIO;
++		}
++	}
++
++	new_kcs->kcs_sm = kmalloc(kcs_size(), GFP_KERNEL);
++	if (!new_kcs->kcs_sm) {
++		printk(KERN_ERR "ipmi_kcs: out of memory\n");
++		rv = -ENOMEM;
++		goto out_err;
++	}
++	init_kcs_data(new_kcs->kcs_sm, kcs_port, new_kcs->addr);
++	spin_lock_init(&(new_kcs->kcs_lock));
++	spin_lock_init(&(new_kcs->msg_lock));
++
++	rv = ipmi_kcs_detect_hardware(kcs_port, new_kcs->addr, new_kcs->kcs_sm);
++	if (rv) {
++		if (kcs_port) 
++			printk(KERN_ERR 
++			       "ipmi_kcs: No KCS @ port 0x%4.4x\n", 
++			       kcs_port);
++		else
++			printk(KERN_ERR 
++			       "ipmi_kcs: No KCS @ addr 0x%lx\n", 
++			       kcs_physaddr);
++		goto out_err;
++	}
++
++	if (irq != 0) {
++		rv = request_irq(irq,
++				 kcs_irq_handler,
++				 SA_INTERRUPT,
++				 DEVICE_NAME,
++				 new_kcs);
++		if (rv) {
++			printk(KERN_WARNING
++			       "ipmi_kcs: %s unable to claim interrupt %d,"
++			       " running polled\n",
++			       DEVICE_NAME, irq);
++			irq = 0;
++		}
++	}
++	new_kcs->irq = irq;
++
++	INIT_LIST_HEAD(&(new_kcs->xmit_msgs));
++	INIT_LIST_HEAD(&(new_kcs->hp_xmit_msgs));
++	new_kcs->curr_msg = NULL;
++	atomic_set(&new_kcs->req_events, 0);
++	new_kcs->run_to_completion = 0;
++
++	start_clear_flags(new_kcs);
++
++	if (irq) {
++		new_kcs->kcs_state = KCS_CLEARING_FLAGS_THEN_SET_IRQ;
++
++		printk(KERN_INFO 
++		       "ipmi_kcs: Acquiring BMC @ port=0x%x irq=%d\n",
++		       kcs_port, irq);
++
++	} else {
++		if (kcs_port)
++			printk(KERN_INFO 
++			       "ipmi_kcs: Acquiring BMC @ port=0x%x\n",
++		       	       kcs_port);
++		else
++			printk(KERN_INFO 
++			       "ipmi_kcs: Acquiring BMC @ addr=0x%lx\n",
++		       	       kcs_physaddr);
++	}
++
++	rv = ipmi_register_smi(&handlers,
++			       new_kcs,
++			       ipmi_version_major,
++			       ipmi_version_minor,
++			       &(new_kcs->intf));
++	if (rv) {
++		free_irq(irq, new_kcs);
++		printk(KERN_ERR 
++		       "ipmi_kcs: Unable to register device: error %d\n",
++		       rv);
++		goto out_err;
++	}
++
++	new_kcs->interrupt_disabled = 0;
++	new_kcs->timer_stopped = 0;
++	new_kcs->stop_operation = 0;
++
++	init_timer(&(new_kcs->kcs_timer));
++	new_kcs->kcs_timer.data = (long) new_kcs;
++	new_kcs->kcs_timer.function = kcs_timeout;
++	new_kcs->last_timeout_jiffies = jiffies;
++	new_kcs->kcs_timer.expires = jiffies + KCS_TIMEOUT_JIFFIES;
++	add_timer(&(new_kcs->kcs_timer));
++
++	*kcs = new_kcs;
++
++	return 0;
++
++ out_err:
++	if (kcs_port) 
++		release_region (kcs_port, 2);
++	if (new_kcs->addr) 
++		iounmap(new_kcs->addr);
++	if (kcs_physaddr) 
++		release_mem_region(kcs_physaddr, 2);
++	if (new_kcs->kcs_sm)
++		kfree(new_kcs->kcs_sm);
++	kfree(new_kcs);
++	return rv;
++}
++
++#ifdef CONFIG_ACPI
++
++/* Retrieve the base physical address from ACPI tables.  Originally
++   from Hewlett-Packard simple bmc.c, a GPL KCS driver. */
++
++#include <linux/acpi.h>
++/* A real hack, but everything's not there yet in 2.4. */
++#define COMPILER_DEPENDENT_UINT64 unsigned long
++#include <../drivers/acpi/include/acpi.h>
++#include <../drivers/acpi/include/actypes.h>
++
++struct SPMITable {
++	s8	Signature[4];
++	u32	Length;
++	u8	Revision;
++	u8	Checksum;
++	s8	OEMID[6];
++	s8	OEMTableID[8];
++	s8	OEMRevision[4];
++	s8	CreatorID[4];
++	s8	CreatorRevision[4];
++	s16	InterfaceType;
++	s16	SpecificationRevision;
++	u8	InterruptType;
++	u8	GPE;
++	s16	Reserved;
++	u64	GlobalSystemInterrupt;
++	u8	BaseAddress[12];
++	u8	UID[4];
++} __attribute__ ((packed));
++
++static unsigned long acpi_find_bmc(void)
++{
++	acpi_status       status;
++	acpi_table_header *spmi;
++	static unsigned long io_base = 0;
++
++	if (io_base != 0)
++		return io_base;
++
++	status = acpi_get_firmware_table("SPMI", 1,
++			ACPI_LOGICAL_ADDRESSING, &spmi);
++
++	if (status != AE_OK) {
++		printk(KERN_ERR "ipmi_kcs: SPMI table not found.\n");
++		return 0;
++	}
++
++	memcpy(&io_base, ((struct SPMITable *)spmi)->BaseAddress,
++			sizeof(io_base));
++	
++	return io_base;
++}
++#endif
++
++static __init int init_ipmi_kcs(void)
++{
++	int		rv = 0;
++	int		pos = 0;
++	int		i = 0;
++#ifdef CONFIG_ACPI
++	unsigned long	physaddr = 0;
++#endif
++
++	if (initialized)
++		return 0;
++	initialized = 1;
++
++	/* First do the "command-line" parameters */
++
++	for (i=0; i < KCS_MAX_PARMS; i++) {
++		rv = init_one_kcs(kcs_ports[i], 
++				  kcs_irqs[i], 
++				  0, 
++				  &(kcs_infos[pos]));
++		if (rv == 0)
++			pos++;
++
++		rv = init_one_kcs(0, 
++				  kcs_irqs[i], 
++				  kcs_addrs[i], 
++				  &(kcs_infos[pos]));
++		if (rv == 0)
++			pos++;
++	}
++
++	/* Only try the defaults if enabled and resources are available
++	   (because they weren't already specified above). */
++
++	if (kcs_trydefaults) {
++#ifdef CONFIG_ACPI
++		if ((physaddr = acpi_find_bmc())) {
++			if (!check_mem_region(physaddr, 2)) {
++				rv = init_one_kcs(0, 
++						  0, 
++						  physaddr, 
++						  &(kcs_infos[pos]));
++				if (rv == 0)
++					pos++;
++			}
++		}
++#endif
++		if (!check_region(DEFAULT_IO_PORT, 2)) {
++			rv = init_one_kcs(DEFAULT_IO_PORT, 
++					  0, 
++					  0, 
++					  &(kcs_infos[pos]));
++			if (rv == 0)
++				pos++;
++		}
++	}
++
++	if (kcs_infos[0] == NULL) {
++		printk("ipmi_kcs: Unable to find any KCS interfaces\n");
++		return -ENODEV;
++	} 
++
++	return 0;
++}
++module_init(init_ipmi_kcs);
++
++#ifdef MODULE
++void __exit cleanup_one_kcs(struct kcs_info *to_clean)
++{
++	int           rv;
++	unsigned long flags;
++
++	if (! to_clean)
++		return;
++
++	/* Tell the timer and interrupt handlers that we are shutting
++	   down. */
++	spin_lock_irqsave(&(to_clean->kcs_lock), flags);
++	spin_lock(&(to_clean->msg_lock));
++
++	to_clean->stop_operation = 1;
++
++	if (to_clean->irq != 0)
++		free_irq(to_clean->irq, to_clean);
++	if (to_clean->port) {
++		printk(KERN_INFO 
++		       "ipmi_kcs: Releasing BMC @ port=0x%x\n",
++		       to_clean->port);
++		release_region (to_clean->port, 2);
++	}
++	if (to_clean->addr) {
++		printk(KERN_INFO 
++		       "ipmi_kcs: Releasing BMC @ addr=0x%lx\n",
++		       to_clean->physaddr);
++		iounmap(to_clean->addr);
++		release_mem_region(to_clean->physaddr, 2);
++	}
++
++	spin_unlock(&(to_clean->msg_lock));
++	spin_unlock_irqrestore(&(to_clean->kcs_lock), flags);
++
++	/* Wait for the timer to stop.  This avoids problems with race
++	   conditions removing the timer here.  Hopefully this will be
++	   long enough to avoid problems with interrupts still
++	   running. */
++	schedule_timeout(2);
++	while (!to_clean->timer_stopped) {
++		schedule_timeout(1);
++	}
++
++	rv = ipmi_unregister_smi(to_clean->intf);
++	if (rv) {
++		printk(KERN_ERR 
++		       "ipmi_kcs: Unable to unregister device: errno=%d\n",
++		       rv);
++	}
++
++	initialized = 0;
++
++	kfree(to_clean->kcs_sm);
++	kfree(to_clean);
++}
++
++static __exit void cleanup_ipmi_kcs(void)
++{
++	int i;
++
++	if (!initialized)
++		return;
++
++	for (i=0; i<KCS_MAX_DRIVERS; i++) {
++		cleanup_one_kcs(kcs_infos[i]);
++	}
++}
++module_exit(cleanup_ipmi_kcs);
++#else
++
++/* Unfortunately, cmdline::get_options() only returns integers, not
++   longs.  Since we need ulongs (64-bit physical addresses) parse the 
++   comma-separated list manually.  Arguments can be one of these forms:
++   m0xaabbccddeeff	A physical memory address without an IRQ
++   m0xaabbccddeeff:cc	A physical memory address with an IRQ
++   p0xaabb		An IO port without an IRQ
++   p0xaabb:cc		An IO port with an IRQ
++   nodefaults		Suppress trying the default IO port or ACPI address 
++
++   For example, to pass one IO port with an IRQ, one address, and 
++   suppress the use of the default IO port and ACPI address,
++   use this option string: ipmi_kcs=p0xCA2:5,m0xFF5B0022,nodefaults
++
++   Remember, ipmi_kcs_setup() is passed the string after the equal sign. */
++
++static int __init ipmi_kcs_setup(char *str)
++{
++	unsigned long val;
++	char *cur, *colon;
++	int pos;
++
++	pos = 0;
++	
++	cur = strsep(&str, ",");
++	while ((cur) && (*cur) && (pos < KCS_MAX_PARMS)) {
++		switch (*cur) {
++		case 'n':
++			if (strcmp(cur, "nodefaults") == 0)
++				kcs_trydefaults = 0;
++			else
++				printk(KERN_INFO 
++				       "ipmi_kcs: bad parameter value %s\n",
++				       cur);
++			break;
++		
++		case 'm':
++		case 'p':
++			val = simple_strtoul(cur + 1,
++					     &colon,
++					     0);
++			if (*cur == 'p')
++				kcs_ports[pos] = val;
++			else
++				kcs_addrs[pos] = val;
++			if (*colon == ':') {
++				val = simple_strtoul(colon + 1,
++						     &colon,
++						     0);
++				kcs_irqs[pos] = val;
++			}
++			pos++;
++			break;
++
++		default:
++			printk(KERN_INFO 
++			       "ipmi_kcs: bad parameter value %s\n",
++			       cur);
++		}
++		cur = strsep(&str, ",");
++	}
++
++	return 1;
++}
++__setup("ipmi_kcs=", ipmi_kcs_setup);
++#endif
++
++MODULE_LICENSE("GPL");
+--- /dev/null	2002-08-30 19:31:37.000000000 -0400
++++ linux-2.4.18-14/drivers/char/ipmi/ipmi_kcs_sm.c	2003-03-27 15:26:22.000000000 -0500
+@@ -0,0 +1,485 @@
++/*
++ * ipmi_kcs_sm.c
++ *
++ * State machine for handling IPMI KCS interfaces.
++ *
++ * Author: MontaVista Software, Inc.
++ *         Corey Minyard <minyard@mvista.com>
++ *         source@mvista.com
++ *
++ * Copyright 2002 MontaVista Software Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License as published by the
++ *  Free Software Foundation; either version 2 of the License, or (at your
++ *  option) any later version.
++ *
++ *
++ *  THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
++ *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ *  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ *  OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ *  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ *  TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ *  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++/*
++ * This state machine is taken from the state machine in the IPMI spec,
++ * pretty much verbatim.  If you have questions about the states, see
++ * that document.
++ */
++
++#include <asm/io.h>
++#include <asm/string.h>		/* Gets rid of memcpy warning */
++
++#include "ipmi_kcs_sm.h"
++
++/* Set this if you want a printout of why the state machine was hosed
++   when it gets hosed. */
++#define DEBUG_HOSED_REASON
++
++/* Print the state machine state on entry every time. */
++#undef DEBUG_STATE
++
++/* The states the KCS driver may be in. */
++enum kcs_states {
++	KCS_IDLE,		/* The KCS interface is currently
++                                   doing nothing. */
++	KCS_START_OP,		/* We are starting an operation.  The
++				   data is in the output buffer, but
++				   nothing has been done to the
++				   interface yet.  This was added to
++				   the state machine in the spec to
++				   wait for the initial IBF. */
++	KCS_WAIT_WRITE_START,	/* We have written a write cmd to the
++				   interface. */
++	KCS_WAIT_WRITE,		/* We are writing bytes to the
++                                   interface. */
++	KCS_WAIT_WRITE_END,	/* We have written the write end cmd
++                                   to the interface, and still need to
++                                   write the last byte. */
++	KCS_WAIT_READ,		/* We are waiting to read data from
++				   the interface. */
++	KCS_ERROR0,		/* State to transition to the error
++				   handler, this was added to the
++				   state machine in the spec to be
++				   sure IBF was there. */
++	KCS_ERROR1,		/* First stage error handler, wait for
++                                   the interface to respond. */
++	KCS_ERROR2,		/* The abort cmd has been written,
++				   wait for the interface to
++				   respond. */
++	KCS_ERROR3,		/* We wrote some data to the
++				   interface, wait for it to switch to
++				   read mode. */
++	KCS_HOSED		/* The hardware failed to follow the
++				   state machine. */
++};
++
++#define MAX_KCS_READ_SIZE 80
++#define MAX_KCS_WRITE_SIZE 80
++
++/* Timeouts in microseconds. */
++#define IBF_RETRY_TIMEOUT 1000000
++#define OBF_RETRY_TIMEOUT 1000000
++#define MAX_ERROR_RETRIES 10
++
++#define IPMI_ERR_MSG_TRUNCATED	0xc6
++#define IPMI_ERR_UNSPECIFIED	0xff
++
++struct kcs_data
++{
++	enum kcs_states state;
++	unsigned int    port;
++	unsigned char	*addr;
++	unsigned char   write_data[MAX_KCS_WRITE_SIZE];
++	int             write_pos;
++	int             write_count;
++	int             orig_write_count;
++	unsigned char   read_data[MAX_KCS_READ_SIZE];
++	int             read_pos;
++	int	        truncated;
++
++	unsigned int  error_retries;
++	long          ibf_timeout;
++	long          obf_timeout;
++};
++
++void init_kcs_data(struct kcs_data *kcs, unsigned int port, unsigned char *addr)
++{
++	kcs->state = KCS_IDLE;
++	kcs->port = port;
++	kcs->addr = addr;
++	kcs->write_pos = 0;
++	kcs->write_count = 0;
++	kcs->orig_write_count = 0;
++	kcs->read_pos = 0;
++	kcs->error_retries = 0;
++	kcs->truncated = 0;
++	kcs->ibf_timeout = IBF_RETRY_TIMEOUT;
++	kcs->obf_timeout = OBF_RETRY_TIMEOUT;
++}
++
++/* Remember, init_one_kcs() insured port and addr can't both be set */
++
++static inline unsigned char read_status(struct kcs_data *kcs)
++{
++        if (kcs->port)
++		return inb(kcs->port + 1);
++        else
++		return readb(kcs->addr + 1);
++}
++
++static inline unsigned char read_data(struct kcs_data *kcs)
++{
++        if (kcs->port)
++		return inb(kcs->port + 0);
++        else
++		return readb(kcs->addr + 0);
++}
++
++static inline void write_cmd(struct kcs_data *kcs, unsigned char data)
++{
++        if (kcs->port)
++		outb(data, kcs->port + 1);
++        else
++		writeb(data, kcs->addr + 1);
++}
++
++static inline void write_data(struct kcs_data *kcs, unsigned char data)
++{
++        if (kcs->port)
++		outb(data, kcs->port + 0);
++        else
++		writeb(data, kcs->addr + 0);
++}
++
++/* Control codes. */
++#define KCS_GET_STATUS_ABORT	0x60
++#define KCS_WRITE_START		0x61
++#define KCS_WRITE_END		0x62
++#define KCS_READ_BYTE		0x68
++
++/* Status bits. */
++#define GET_STATUS_STATE(status) (((status) >> 6) & 0x03)
++#define KCS_IDLE_STATE	0
++#define KCS_READ_STATE	1
++#define KCS_WRITE_STATE	2
++#define KCS_ERROR_STATE	3
++#define GET_STATUS_ATN(status) ((status) & 0x04)
++#define GET_STATUS_IBF(status) ((status) & 0x02)
++#define GET_STATUS_OBF(status) ((status) & 0x01)
++
++
++static inline void write_next_byte(struct kcs_data *kcs)
++{
++	write_data(kcs, kcs->write_data[kcs->write_pos]);
++	(kcs->write_pos)++;
++	(kcs->write_count)--;
++}
++
++static inline void start_error_recovery(struct kcs_data *kcs, char *reason)
++{
++	(kcs->error_retries)++;
++	if (kcs->error_retries > MAX_ERROR_RETRIES) {
++#ifdef DEBUG_HOSED_REASON
++		printk("ipmi_kcs_sm: kcs hosed: %s\n", reason);
++#endif
++		kcs->state = KCS_HOSED;
++	} else {
++		kcs->state = KCS_ERROR0;
++	}
++}
++
++static inline void read_next_byte(struct kcs_data *kcs)
++{
++	if (kcs->read_pos >= MAX_KCS_READ_SIZE) {
++		/* Throw the data away and mark it truncated. */
++		read_data(kcs);
++		kcs->truncated = 1;
++	} else {
++		kcs->read_data[kcs->read_pos] = read_data(kcs);
++		(kcs->read_pos)++;
++	}
++	write_data(kcs, KCS_READ_BYTE);
++}
++
++static inline int check_ibf(struct kcs_data *kcs,
++			    unsigned char   status,
++			    long            time)
++{
++	if (GET_STATUS_IBF(status)) {
++		kcs->ibf_timeout -= time;
++		if (kcs->ibf_timeout < 0) {
++			start_error_recovery(kcs, "IBF not ready in time");
++			kcs->ibf_timeout = IBF_RETRY_TIMEOUT;
++			return 1;
++		}
++		return 0;
++	}
++	kcs->ibf_timeout = IBF_RETRY_TIMEOUT;
++	return 1;
++}
++
++static inline int check_obf(struct kcs_data *kcs,
++			    unsigned char   status,
++			    long            time)
++{
++	if (! GET_STATUS_OBF(status)) {
++		kcs->obf_timeout -= time;
++		if (kcs->obf_timeout < 0) {
++		    start_error_recovery(kcs, "OBF not ready in time");
++		    return 1;
++		}
++		return 0;
++	}
++	kcs->obf_timeout = OBF_RETRY_TIMEOUT;
++	return 1;
++}
++
++static void clear_obf(struct kcs_data *kcs, unsigned char status)
++{
++	if (GET_STATUS_OBF(status))
++		read_data(kcs);
++}
++
++static void restart_kcs_transaction(struct kcs_data *kcs)
++{
++	kcs->write_count = kcs->orig_write_count;
++	kcs->write_pos = 0;
++	kcs->read_pos = 0;
++	kcs->state = KCS_WAIT_WRITE_START;
++	kcs->ibf_timeout = IBF_RETRY_TIMEOUT;
++	kcs->obf_timeout = OBF_RETRY_TIMEOUT;
++	write_cmd(kcs, KCS_WRITE_START);
++}
++
++int start_kcs_transaction(struct kcs_data *kcs, char *data, unsigned int size)
++{
++	if ((size < 2) || (size > MAX_KCS_WRITE_SIZE)) {
++		return -1;
++	}
++
++	if ((kcs->state != KCS_IDLE) && (kcs->state != KCS_HOSED)) {
++		return -2;
++	}
++
++	kcs->error_retries = 0;
++	memcpy(kcs->write_data, data, size);
++	kcs->write_count = size;
++	kcs->orig_write_count = size;
++	kcs->write_pos = 0;
++	kcs->read_pos = 0;
++	kcs->state = KCS_START_OP;
++	kcs->ibf_timeout = IBF_RETRY_TIMEOUT;
++	kcs->obf_timeout = OBF_RETRY_TIMEOUT;
++	return 0;
++}
++
++int kcs_get_result(struct kcs_data *kcs, unsigned char *data, int length)
++{
++	if (length < kcs->read_pos) {
++		kcs->read_pos = length;
++		kcs->truncated = 1;
++	}
++
++	memcpy(data, kcs->read_data, kcs->read_pos);
++
++	if ((length >= 3) && (kcs->read_pos < 3)) {
++		/* Guarantee that we return at least 3 bytes, with an
++		   error in the third byte if it is too short. */
++		data[2] = IPMI_ERR_UNSPECIFIED;
++		kcs->read_pos = 3;
++	}
++	if (kcs->truncated) {
++		/* Report a truncated error.  We might overwrite
++		   another error, but that's too bad, the user needs
++		   to know it was truncated. */
++		data[2] = IPMI_ERR_MSG_TRUNCATED;
++		kcs->truncated = 0;
++	}
++
++	return kcs->read_pos;
++}
++
++/* This implements the state machine defined in the IPMI manual, see
++   that for details on how this works.  Divide that flowchart into
++   sections delimited by "Wait for IBF" and this will become clear. */
++enum kcs_result kcs_event(struct kcs_data *kcs, long time)
++{
++	unsigned char status;
++	unsigned char state;
++
++	status = read_status(kcs);
++
++#ifdef DEBUG_STATE
++	printk("  State = %d, %x\n", kcs->state, status);
++#endif
++	/* All states wait for ibf, so just do it here. */
++	if (!check_ibf(kcs, status, time))
++		return KCS_CALL_WITH_DELAY;
++
++	/* Just about everything looks at the KCS state, so grab that, too. */
++	state = GET_STATUS_STATE(status);
++
++	switch (kcs->state) {
++	case KCS_IDLE:
++		/* If there's and interrupt source, turn it off. */
++		clear_obf(kcs, status);
++
++		if (GET_STATUS_ATN(status))
++			return KCS_ATTN;
++		else
++			return KCS_SM_IDLE;
++
++	case KCS_START_OP:
++		if (state != KCS_IDLE) {
++			start_error_recovery(kcs,
++					     "State machine not idle at start");
++			break;
++		}
++
++		clear_obf(kcs, status);
++		write_cmd(kcs, KCS_WRITE_START);
++		kcs->state = KCS_WAIT_WRITE_START;
++		break;
++
++	case KCS_WAIT_WRITE_START:
++		if (state != KCS_WRITE_STATE) {
++			start_error_recovery(
++				kcs,
++				"Not in write state at write start");
++			break;
++		}
++		read_data(kcs);
++		if (kcs->write_count == 1) {
++			write_cmd(kcs, KCS_WRITE_END);
++			kcs->state = KCS_WAIT_WRITE_END;
++		} else {
++			write_next_byte(kcs);
++			kcs->state = KCS_WAIT_WRITE;
++		}
++		break;
++
++	case KCS_WAIT_WRITE:
++		if (state != KCS_WRITE_STATE) {
++			start_error_recovery(kcs,
++					     "Not in write state for write");
++			break;
++		}
++		clear_obf(kcs, status);
++		if (kcs->write_count == 1) {
++			write_cmd(kcs, KCS_WRITE_END);
++			kcs->state = KCS_WAIT_WRITE_END;
++		} else {
++			write_next_byte(kcs);
++		}
++		break;
++		
++	case KCS_WAIT_WRITE_END:
++		if (state != KCS_WRITE_STATE) {
++			start_error_recovery(kcs,
++					     "Not in write state for write end");
++			break;
++		}
++		clear_obf(kcs, status);
++		write_next_byte(kcs);
++		kcs->state = KCS_WAIT_READ;
++		break;
++
++	case KCS_WAIT_READ:
++		if ((state != KCS_READ_STATE) && (state != KCS_IDLE_STATE)) {
++			start_error_recovery(
++				kcs,
++				"Not in read or idle in read state");
++			break;
++		}
++
++		if (state == KCS_READ_STATE) {
++			if (! check_obf(kcs, status, time))
++				return KCS_CALL_WITH_DELAY;
++			read_next_byte(kcs);
++		} else {
++			/* We don't implement this exactly like the state
++			   machine in the spec.  Some broken hardware
++			   does not write the final dummy byte to the
++			   read register.  Thus obf will never go high
++			   here.  We just go straight to idle, and we
++			   handle clearing out obf in idle state if it
++			   happens to come in. */
++			clear_obf(kcs, status);
++			kcs->orig_write_count = 0;
++			kcs->state = KCS_IDLE;
++			return KCS_TRANSACTION_COMPLETE;
++		}
++		break;
++
++	case KCS_ERROR0:
++		clear_obf(kcs, status);
++		write_cmd(kcs, KCS_GET_STATUS_ABORT);
++		kcs->state = KCS_ERROR1;
++		break;
++
++	case KCS_ERROR1:
++		clear_obf(kcs, status);
++		write_data(kcs, 0);
++		kcs->state = KCS_ERROR2;
++		break;
++		
++	case KCS_ERROR2:
++		if (state != KCS_READ_STATE) {
++			start_error_recovery(kcs,
++					     "Not in read state for error2");
++			break;
++		}
++		if (! check_obf(kcs, status, time))
++			return KCS_CALL_WITH_DELAY;
++
++		clear_obf(kcs, status);
++		write_data(kcs, KCS_READ_BYTE);
++		kcs->state = KCS_ERROR3;
++		break;
++		
++	case KCS_ERROR3:
++		if (state != KCS_IDLE_STATE) {
++			start_error_recovery(kcs,
++					     "Not in idle state for error3");
++			break;
++		}
++
++		if (! check_obf(kcs, status, time))
++			return KCS_CALL_WITH_DELAY;
++
++		clear_obf(kcs, status);
++		if (kcs->orig_write_count) {
++			restart_kcs_transaction(kcs);
++		} else {
++			kcs->state = KCS_IDLE;
++			return KCS_TRANSACTION_COMPLETE;
++		}
++		break;
++			
++	case KCS_HOSED:
++		return KCS_SM_HOSED;
++	}
++
++	if (kcs->state == KCS_HOSED) {
++		init_kcs_data(kcs, kcs->port, kcs->addr);
++		return KCS_SM_HOSED;
++	}
++
++	return KCS_CALL_WITHOUT_DELAY;
++}
++
++int kcs_size(void)
++{
++	return sizeof(struct kcs_data);
++}
+--- /dev/null	2002-08-30 19:31:37.000000000 -0400
++++ linux-2.4.18-14/drivers/char/ipmi/ipmi_kcs_sm.h	2003-03-27 15:26:22.000000000 -0500
+@@ -0,0 +1,70 @@
++/*
++ * ipmi_kcs_sm.h
++ *
++ * State machine for handling IPMI KCS interfaces.
++ *
++ * Author: MontaVista Software, Inc.
++ *         Corey Minyard <minyard@mvista.com>
++ *         source@mvista.com
++ *
++ * Copyright 2002 MontaVista Software Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License as published by the
++ *  Free Software Foundation; either version 2 of the License, or (at your
++ *  option) any later version.
++ *
++ *
++ *  THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
++ *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ *  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ *  OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ *  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ *  TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ *  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++struct kcs_data;
++
++void init_kcs_data(struct kcs_data *kcs,
++		   unsigned int    port,
++		   unsigned char   *addr);
++
++/* Start a new transaction in the state machine.  This will return -2
++   if the state machine is not idle, -1 if the size is invalid (to
++   large or too small), or 0 if the transaction is successfully
++   completed. */
++int start_kcs_transaction(struct kcs_data *kcs, char *data, unsigned int size);
++
++/* Return the results after the transaction.  This will return -1 if
++   the buffer is too small, zero if no transaction is present, or the
++   actual length of the result data. */
++int kcs_get_result(struct kcs_data *kcs, unsigned char *data, int length);
++
++enum kcs_result
++{
++	KCS_CALL_WITHOUT_DELAY, /* Call the driver again immediately */
++	KCS_CALL_WITH_DELAY,	/* Delay some before calling again. */
++	KCS_TRANSACTION_COMPLETE, /* A transaction is finished. */
++	KCS_SM_IDLE,		/* The SM is in idle state. */
++	KCS_SM_HOSED,		/* The hardware violated the state machine. */
++	KCS_ATTN		/* The hardware is asserting attn and the
++				   state machine is idle. */
++};
++
++/* Call this periodically (for a polled interface) or upon receiving
++   an interrupt (for a interrupt-driven interface).  If interrupt
++   driven, you should probably poll this periodically when not in idle
++   state.  This should be called with the time that passed since the
++   last call, if it is significant.  Time is in microseconds. */
++enum kcs_result kcs_event(struct kcs_data *kcs, long time);
++
++/* Return the size of the KCS structure in bytes. */
++int kcs_size(void);
+--- /dev/null	2002-08-30 19:31:37.000000000 -0400
++++ linux-2.4.18-14/drivers/char/ipmi/ipmi_msghandler.c	2003-03-27 15:26:22.000000000 -0500
+@@ -0,0 +1,1984 @@
++/*
++ * ipmi_msghandler.c
++ *
++ * Incoming and outgoing message routing for an IPMI interface.
++ *
++ * Author: MontaVista Software, Inc.
++ *         Corey Minyard <minyard@mvista.com>
++ *         source@mvista.com
++ *
++ * Copyright 2002 MontaVista Software Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License as published by the
++ *  Free Software Foundation; either version 2 of the License, or (at your
++ *  option) any later version.
++ *
++ *
++ *  THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
++ *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ *  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ *  OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ *  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ *  TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ *  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++#include <linux/config.h>
++#include <linux/module.h>
++#include <linux/errno.h>
++#include <asm/system.h>
++#include <linux/sched.h>
++#include <linux/poll.h>
++#include <linux/spinlock.h>
++#include <linux/rwsem.h>
++#include <linux/slab.h>
++#include <linux/ipmi.h>
++#include <linux/ipmi_smi.h>
++#include <linux/notifier.h>
++#include <linux/init.h>
++
++struct ipmi_recv_msg *ipmi_alloc_recv_msg(void);
++static int ipmi_init_msghandler(void);
++
++static int initialized = 0;
++
++#define MAX_EVENTS_IN_QUEUE	25
++
++/* Don't let a message sit in a queue forever, always time it with at lest
++   the max message timer. */
++#define MAX_MSG_TIMEOUT		60000
++
++struct ipmi_user
++{
++	struct list_head link;
++
++	/* The upper layer that handles receive messages. */
++	struct ipmi_user_hndl *handler;
++	void             *handler_data;
++
++	/* The interface this user is bound to. */
++	ipmi_smi_t intf;
++
++	/* Does this interface receive IPMI events? */
++	int gets_events;
++};
++
++struct cmd_rcvr
++{
++	struct list_head link;
++
++	ipmi_user_t   user;
++	unsigned char netfn;
++	unsigned char cmd;
++};
++
++struct seq_table
++{
++	int                  inuse : 1;
++
++	unsigned long        timeout;
++	unsigned long        orig_timeout;
++	unsigned int         retries_left;
++
++	/* To verify on an incoming send message response that this is
++           the message that the response is for, we keep a sequence id
++           and increment it every time we send a message. */
++	long                 seqid;
++
++	/* This is held so we can properly respond to the message on a
++           timeout, and it is used to hold the temporary data for
++           retransmission, too. */
++	struct ipmi_recv_msg *recv_msg;
++};
++
++/* Store the information in a msgid (long) to allow us to find a
++   sequence table entry from the msgid. */
++#define STORE_SEQ_IN_MSGID(seq, seqid) (((seq&0xff)<<26) | (seqid&0x3ffffff))
++
++#define GET_SEQ_FROM_MSGID(msgid, seq, seqid) \
++	do {								\
++		seq = ((msgid >> 26) & 0x3f);				\
++		seqid = (msgid & 0x3fffff);				\
++        } while(0)
++
++#define NEXT_SEQID(seqid) (((seqid) + 1) & 0x3fffff)
++
++
++#define IPMI_IPMB_NUM_SEQ	64
++struct ipmi_smi
++{
++	/* The list of upper layers that are using me.  We read-lock
++           this when delivering messages to the upper layer to keep
++           the user from going away while we are processing the
++           message.  This means that you cannot add or delete a user
++           from the receive callback. */
++	rwlock_t                users_lock;
++	struct list_head        users;
++
++	/* The IPMI version of the BMC on the other end. */
++	unsigned char       version_major;
++	unsigned char       version_minor;
++
++	/* This is the lower-layer's sender routine. */
++	struct ipmi_smi_handlers *handlers;
++	void                     *send_info;
++
++	/* A table of sequence numbers for this interface.  We use the
++           sequence numbers for IPMB messages that go out of the
++           interface to match them up with their responses.  A routine
++           is called periodically to time the items in this list. */
++	spinlock_t       seq_lock;
++	struct seq_table seq_table[IPMI_IPMB_NUM_SEQ];
++	int curr_seq;
++
++	/* Messages that were delayed for some reason (out of memory,
++           for instance), will go in here to be processed later in a
++           periodic timer interrupt. */
++	spinlock_t       waiting_msgs_lock;
++	struct list_head waiting_msgs;
++
++	/* The list of command receivers that are registered for commands
++	   on this interface. */
++	rwlock_t	 cmd_rcvr_lock;
++	struct list_head cmd_rcvrs;
++
++	/* Events that were queues because no one was there to receive
++           them. */
++	spinlock_t       events_lock; /* For dealing with event stuff. */
++	struct list_head waiting_events;
++	unsigned int     waiting_events_count; /* How many events in queue? */
++
++	/* This will be non-null if someone registers to receive all
++	   IPMI commands (this is for interface emulation).  There
++	   may not be any things in the cmd_rcvrs list above when
++	   this is registered. */
++	ipmi_user_t all_cmd_rcvr;
++
++	/* My slave address.  This is initialized to IPMI_BMC_SLAVE_ADDR,
++	   but may be changed by the user. */
++	unsigned char my_address;
++
++	/* My LUN.  This should generally stay the SMS LUN, but just in
++	   case... */
++	unsigned char my_lun;
++};
++
++int
++ipmi_register_all_cmd_rcvr(ipmi_user_t user)
++{
++	int flags;
++	int rv = -EBUSY;
++
++	write_lock_irqsave(&(user->intf->users_lock), flags);
++	write_lock(&(user->intf->cmd_rcvr_lock));
++	if ((user->intf->all_cmd_rcvr == NULL)
++	    && (list_empty(&(user->intf->cmd_rcvrs))))
++	{
++		user->intf->all_cmd_rcvr = user;
++		rv = 0;
++	}
++	write_unlock(&(user->intf->cmd_rcvr_lock));
++	write_unlock_irqrestore(&(user->intf->users_lock), flags);
++	return rv;
++}
++
++int
++ipmi_unregister_all_cmd_rcvr(ipmi_user_t user)
++{
++	int flags;
++	int rv = -EINVAL;
++
++	write_lock_irqsave(&(user->intf->users_lock), flags);
++	write_lock(&(user->intf->cmd_rcvr_lock));
++	if (user->intf->all_cmd_rcvr == user)
++	{
++		user->intf->all_cmd_rcvr = NULL;
++		rv = 0;
++	}
++	write_unlock(&(user->intf->cmd_rcvr_lock));
++	write_unlock_irqrestore(&(user->intf->users_lock), flags);
++	return rv;
++}
++
++
++#define MAX_IPMI_INTERFACES 4
++static ipmi_smi_t ipmi_interfaces[MAX_IPMI_INTERFACES];
++
++/* Used to keep interfaces from going away while operations are
++   operating on interfaces.  Grab read if you are not modifying the
++   interfaces, write if you are. */
++static DECLARE_RWSEM(interfaces_sem);
++
++/* Directly protects the ipmi_interfaces data structure.  This is
++   claimed in the timer interrupt. */
++static spinlock_t interfaces_lock = SPIN_LOCK_UNLOCKED;
++
++/* List of watchers that want to know when smi's are added and
++   deleted. */
++static struct list_head smi_watchers = LIST_HEAD_INIT(smi_watchers);
++static DECLARE_RWSEM(smi_watchers_sem);
++
++int ipmi_smi_watcher_register(struct ipmi_smi_watcher *watcher)
++{
++	int i;
++
++	down_read(&interfaces_sem);
++	down_write(&smi_watchers_sem);
++	list_add(&(watcher->link), &smi_watchers);
++	for (i=0; i<MAX_IPMI_INTERFACES; i++) {
++		if (ipmi_interfaces[i] != NULL) {
++			watcher->new_smi(i);
++		}
++	}
++	up_write(&smi_watchers_sem);
++	up_read(&interfaces_sem);
++	return 0;
++}
++
++int ipmi_smi_watcher_unregister(struct ipmi_smi_watcher *watcher)
++{
++	down_write(&smi_watchers_sem);
++	list_del(&(watcher->link));
++	up_write(&smi_watchers_sem);
++	return 0;
++}
++
++int
++ipmi_addr_equal(struct ipmi_addr *addr1, struct ipmi_addr *addr2)
++{
++	if (addr1->addr_type != addr2->addr_type)
++		return 0;
++
++	if (addr1->channel != addr2->channel)
++		return 0;
++
++	if (addr1->addr_type == IPMI_SYSTEM_INTERFACE_ADDR_TYPE) {
++		struct ipmi_system_interface_addr *smi_addr1
++		    = (struct ipmi_system_interface_addr *) addr1;
++		struct ipmi_system_interface_addr *smi_addr2
++		    = (struct ipmi_system_interface_addr *) addr2;
++		return (smi_addr1->lun == smi_addr2->lun);
++	}
++
++	if ((addr1->addr_type == IPMI_IPMB_ADDR_TYPE)
++	    || (addr1->addr_type == IPMI_IPMB_BROADCAST_ADDR_TYPE))
++	{
++		struct ipmi_ipmb_addr *ipmb_addr1
++		    = (struct ipmi_ipmb_addr *) addr1;
++		struct ipmi_ipmb_addr *ipmb_addr2
++		    = (struct ipmi_ipmb_addr *) addr2;
++
++		return ((ipmb_addr1->slave_addr == ipmb_addr2->slave_addr)
++			&& (ipmb_addr1->lun == ipmb_addr2->lun));
++	}
++
++	return 1;
++}
++
++int ipmi_validate_addr(struct ipmi_addr *addr, int len)
++{
++	if (len < sizeof(struct ipmi_system_interface_addr)) {
++		return -EINVAL;
++	}
++
++	if (addr->addr_type == IPMI_SYSTEM_INTERFACE_ADDR_TYPE) {
++		if (addr->channel != IPMI_BMC_CHANNEL)
++			return -EINVAL;
++		return 0;
++	}
++
++	if ((addr->channel == IPMI_BMC_CHANNEL)
++	    || (addr->channel >= IPMI_NUM_CHANNELS)
++	    || (addr->channel < 0))
++		return -EINVAL;
++
++	if ((addr->addr_type == IPMI_IPMB_ADDR_TYPE)
++	    || (addr->addr_type == IPMI_IPMB_BROADCAST_ADDR_TYPE))
++	{
++		if (len < sizeof(struct ipmi_ipmb_addr)) {
++			return -EINVAL;
++		}
++		return 0;
++	}
++
++	return -EINVAL;
++}
++
++unsigned int ipmi_addr_length(int addr_type)
++{
++	if (addr_type == IPMI_SYSTEM_INTERFACE_ADDR_TYPE)
++		return sizeof(struct ipmi_system_interface_addr);
++
++	if ((addr_type == IPMI_IPMB_ADDR_TYPE)
++	    || (addr_type == IPMI_IPMB_BROADCAST_ADDR_TYPE))
++	{
++		return sizeof(struct ipmi_ipmb_addr);
++	}
++
++	return 0;
++}
++
++static void deliver_response(struct ipmi_recv_msg *msg)
++{
++    msg->user->handler->ipmi_recv_hndl(msg, msg->user->handler_data);
++}
++
++/* Find the next sequence number not being used and add the given
++   message with the given timeout to the sequence table.  This must be
++   called with the interface's seq_lock held. */
++static int intf_next_seq(ipmi_smi_t           intf,
++			 struct ipmi_recv_msg *recv_msg,
++			 unsigned long        timeout,
++			 int                  retries,
++			 unsigned char        *seq,
++			 long                 *seqid)
++{
++	int          rv = 0;
++	unsigned int i;
++
++	for (i=intf->curr_seq;
++	     i!=(intf->curr_seq-1);
++	     i=(i+1)%IPMI_IPMB_NUM_SEQ)
++	{
++		if (! intf->seq_table[i].inuse)
++			break;
++	}
++
++	if (! intf->seq_table[i].inuse) {
++		intf->seq_table[i].recv_msg = recv_msg;
++
++		/* Start with the maximum timeout, when the send response
++		   comes in we will start the real timer. */
++		intf->seq_table[i].timeout = MAX_MSG_TIMEOUT;
++		intf->seq_table[i].orig_timeout = timeout;
++		intf->seq_table[i].retries_left = retries;
++		intf->seq_table[i].inuse = 1;
++		intf->seq_table[i].seqid = NEXT_SEQID(intf->seq_table[i].seqid);
++		*seq = i;
++		*seqid = intf->seq_table[i].seqid;
++		intf->curr_seq = (i+1)%IPMI_IPMB_NUM_SEQ;
++	} else {
++		rv = -EAGAIN;
++	}
++	
++	return rv;
++}
++
++/* Return the receive message for the given sequence number and
++   release the sequence number so it can be reused.  Some other data
++   is passed in to be sure the message matches up correctly (to help
++   guard against message coming in after their timeout and the
++   sequence number being reused). */
++static int intf_find_seq(ipmi_smi_t           intf,
++			 unsigned char        seq,
++			 short                channel,
++			 unsigned char        cmd,
++			 unsigned char        netfn,
++			 struct ipmi_addr     *addr,
++			 struct ipmi_recv_msg **recv_msg)
++{
++	int           rv = -ENODEV;
++	unsigned long flags;
++
++	if (seq >= IPMI_IPMB_NUM_SEQ)
++		return -EINVAL;
++
++	spin_lock_irqsave(&(intf->seq_lock), flags);
++	if (intf->seq_table[seq].inuse) {
++		struct ipmi_recv_msg *msg = intf->seq_table[seq].recv_msg;
++
++		if ((msg->addr.channel == channel)
++		    && (msg->msg.cmd == cmd)
++		    && (msg->msg.netfn == netfn)
++		    && (ipmi_addr_equal(addr, &(msg->addr))))
++		{
++			*recv_msg = msg;
++			intf->seq_table[seq].inuse = 0;
++			rv = 0;
++		}
++	}
++	spin_unlock_irqrestore(&(intf->seq_lock), flags);
++
++	return rv;
++}
++
++
++/* Start the timer for a specific sequence table entry. */
++static int intf_start_seq_timer(ipmi_smi_t           intf,
++				long                 msgid)
++{
++	int           rv = -ENODEV;
++	unsigned long flags;
++	unsigned char seq;
++	unsigned long seqid;
++
++
++	GET_SEQ_FROM_MSGID(msgid, seq, seqid);
++
++	spin_lock_irqsave(&(intf->seq_lock), flags);
++	/* We do this verification because the user can be deleted
++           while a message is outstanding. */
++	if ((intf->seq_table[seq].inuse)
++	    && (intf->seq_table[seq].seqid == seqid))
++	{
++		struct seq_table *ent = &(intf->seq_table[seq]);
++		ent->timeout = ent->orig_timeout;
++	}
++	spin_unlock_irqrestore(&(intf->seq_lock), flags);
++
++	return rv;
++}
++
++
++int ipmi_create_user(unsigned int          if_num,
++		     struct ipmi_user_hndl *handler,
++		     void                  *handler_data,
++		     ipmi_user_t           *user)
++{
++	unsigned long flags;
++	ipmi_user_t   new_user;
++	int           rv = 0;
++
++	/* There is no module usecount here, because it's not
++           required.  Since this can only be used by and called from
++           other modules, they will implicitly use this module, and
++           thus this can't be removed unless the other modules are
++           removed. */
++
++	if (handler == NULL)
++		return -EINVAL;
++
++	/* Make sure the driver is actually initialized, this handles
++	   problems with initialization order. */
++	if (!initialized) {
++		rv = ipmi_init_msghandler();
++		if (rv)
++			return rv;
++
++		/* The init code doesn't return an error if it was turned
++		   off, but it won't initialize.  Check that. */
++		if (!initialized)
++			return -ENODEV;
++	}
++
++	new_user = kmalloc(sizeof(*new_user), GFP_KERNEL);
++	if (! new_user)
++		return -ENOMEM;
++
++	down_read(&interfaces_sem);
++	if ((if_num > MAX_IPMI_INTERFACES) || ipmi_interfaces[if_num] == NULL)
++	{
++		rv = -EINVAL;
++		goto out_unlock;
++	}
++
++	new_user->handler = handler;
++	new_user->handler_data = handler_data;
++	new_user->intf = ipmi_interfaces[if_num];
++	new_user->gets_events = 0;
++
++	rv = new_user->intf->handlers->new_user(new_user->intf->send_info);
++	if (rv)
++		goto out_unlock;
++
++	write_lock_irqsave(&(new_user->intf->users_lock), flags);
++	list_add_tail(&(new_user->link), &(new_user->intf->users));
++	write_unlock_irqrestore(&(new_user->intf->users_lock), flags);
++
++ out_unlock:	
++	if (rv) {
++		kfree(new_user);
++	} else {
++		*user = new_user;
++	}
++
++	up_read(&interfaces_sem);
++	return rv;
++}
++
++static int ipmi_destroy_user_nolock(ipmi_user_t user)
++{
++	int              rv = -ENODEV;
++	ipmi_user_t      t_user;
++	struct list_head *entry, *entry2;
++	int              i;
++	unsigned long    flags;
++
++	/* Find the user and delete them from the list. */
++	list_for_each(entry, &(user->intf->users)) {
++		t_user = list_entry(entry, struct ipmi_user, link);
++		if (t_user == user) {
++			list_del(entry);
++			rv = 0;
++			break;
++		}
++	}
++
++	if (rv) {
++		goto out_unlock;
++	}
++
++	/* Remove the user from the interfaces sequence table. */
++	spin_lock_irqsave(&(user->intf->seq_lock), flags);
++	for (i=0; i<IPMI_IPMB_NUM_SEQ; i++) {
++		if (user->intf->seq_table[i].inuse
++		    && (user->intf->seq_table[i].recv_msg->user == user))
++		{
++			user->intf->seq_table[i].inuse = 0;
++		}
++	}
++	spin_unlock_irqrestore(&(user->intf->seq_lock), flags);
++
++	/* Remove the user from the command receiver's table. */
++	write_lock_irqsave(&(user->intf->cmd_rcvr_lock), flags);
++	list_for_each_safe(entry, entry2, &(user->intf->cmd_rcvrs)) {
++		struct cmd_rcvr *rcvr;
++		rcvr = list_entry(entry, struct cmd_rcvr, link);
++		if (rcvr->user == user) {
++			list_del(entry);
++			kfree(rcvr);
++		}
++	}
++	write_unlock_irqrestore(&(user->intf->cmd_rcvr_lock), flags);
++
++	kfree(user);
++
++ out_unlock:
++
++	return rv;
++}
++
++int ipmi_destroy_user(ipmi_user_t user)
++{
++	int           rv;
++	ipmi_smi_t    intf = user->intf;
++	unsigned long flags;
++
++	down_read(&interfaces_sem);
++	write_lock_irqsave(&(intf->users_lock), flags);
++	rv = ipmi_destroy_user_nolock(user);
++	if (!rv)
++		intf->handlers->user_left(intf->send_info);
++		
++	write_unlock_irqrestore(&(intf->users_lock), flags);
++	up_read(&interfaces_sem);
++	return rv;
++}
++
++void ipmi_get_version(ipmi_user_t   user,
++		      unsigned char *major,
++		      unsigned char *minor)
++{
++	*major = user->intf->version_major;
++	*minor = user->intf->version_minor;
++}
++
++void ipmi_set_my_address(ipmi_user_t   user,
++			 unsigned char address)
++{
++	user->intf->my_address = address;
++}
++
++unsigned char ipmi_get_my_address(ipmi_user_t user)
++{
++	return user->intf->my_address;
++}
++
++void ipmi_set_my_LUN(ipmi_user_t   user,
++		     unsigned char LUN)
++{
++	user->intf->my_lun = LUN & 0x3;
++}
++
++unsigned char ipmi_get_my_LUN(ipmi_user_t user)
++{
++	return user->intf->my_lun;
++}
++
++int ipmi_set_gets_events(ipmi_user_t user, int val)
++{
++	unsigned long         flags;
++	struct list_head      *e, *e2;
++	struct ipmi_recv_msg  *msg;
++
++	read_lock(&(user->intf->users_lock));
++	spin_lock_irqsave(&(user->intf->events_lock), flags);
++	user->gets_events = val;
++
++	if (val) {
++		/* Deliver any queued events. */
++		list_for_each_safe(e, e2, &(user->intf->waiting_events)) {
++			msg = list_entry(e, struct ipmi_recv_msg, link);
++			list_del(e);
++			msg->user = user;
++			deliver_response(msg);
++		}
++	}
++	
++	spin_unlock_irqrestore(&(user->intf->events_lock), flags);
++	read_unlock(&(user->intf->users_lock));
++
++	return 0;
++}
++
++int ipmi_register_for_cmd(ipmi_user_t   user,
++			  unsigned char netfn,
++			  unsigned char cmd)
++{
++	struct list_head *entry;
++	unsigned long    flags;
++	struct cmd_rcvr  *rcvr;
++	int              rv = 0;
++
++
++	rcvr = kmalloc(sizeof(*rcvr), GFP_KERNEL);
++	if (! rcvr)
++		return -ENOMEM;
++
++	read_lock(&(user->intf->users_lock));
++	write_lock_irqsave(&(user->intf->cmd_rcvr_lock), flags);
++	if (user->intf->all_cmd_rcvr != NULL) {
++		rv = -EBUSY;
++		goto out_unlock;
++	}
++
++	/* Make sure the command/netfn is not already registered. */
++	list_for_each(entry, &(user->intf->cmd_rcvrs)) {
++		struct cmd_rcvr *cmp;
++		cmp = list_entry(entry, struct cmd_rcvr, link);
++		if ((cmp->netfn == netfn) && (cmp->cmd == cmd)) {
++			rv = -EBUSY;
++			break;
++		}
++	}
++
++	if (! rv) {
++		rcvr->cmd = cmd;
++		rcvr->netfn = netfn;
++		rcvr->user = user;
++		list_add_tail(&(rcvr->link), &(user->intf->cmd_rcvrs));
++	}
++ out_unlock:
++	write_unlock_irqrestore(&(user->intf->cmd_rcvr_lock), flags);
++	read_unlock(&(user->intf->users_lock));
++
++	if (rv)
++		kfree(rcvr);
++
++	return rv;
++}
++
++int ipmi_unregister_for_cmd(ipmi_user_t   user,
++			    unsigned char netfn,
++			    unsigned char cmd)
++{
++	struct list_head *entry;
++	unsigned long    flags;
++	struct cmd_rcvr  *rcvr;
++	int              rv = -ENOENT;
++
++	read_lock(&(user->intf->users_lock));
++	write_lock_irqsave(&(user->intf->cmd_rcvr_lock), flags);
++	/* Make sure the command/netfn is not already registered. */
++	list_for_each(entry, &(user->intf->cmd_rcvrs)) {
++		rcvr = list_entry(entry, struct cmd_rcvr, link);
++		if ((rcvr->netfn == netfn) && (rcvr->cmd == cmd)) {
++			rv = 0;
++			list_del(entry);
++			kfree(rcvr);
++			break;
++		}
++	}
++	write_unlock_irqrestore(&(user->intf->cmd_rcvr_lock), flags);
++	read_unlock(&(user->intf->users_lock));
++
++	return rv;
++}
++
++static unsigned char
++ipmb_checksum(unsigned char *data, int size)
++{
++	unsigned char csum = 0;
++	
++	for (; size > 0; size--, data++)
++		csum += *data;
++
++	return -csum;
++}
++
++static inline void format_ipmb_msg(struct ipmi_smi_msg   *smi_msg,
++				   struct ipmi_msg       *msg,
++				   struct ipmi_ipmb_addr *ipmb_addr,
++				   long                  msgid,
++				   unsigned char         ipmb_seq,
++				   int                   broadcast,
++				   unsigned char         source_address,
++				   unsigned char         source_lun)
++{
++	int i = broadcast;
++
++	/* Format the IPMB header data. */
++	smi_msg->data[0] = (IPMI_NETFN_APP_REQUEST << 2);
++	smi_msg->data[1] = IPMI_SEND_MSG_CMD;
++	smi_msg->data[2] = ipmb_addr->channel;
++	if (broadcast)
++		smi_msg->data[3] = 0;
++	smi_msg->data[i+3] = ipmb_addr->slave_addr;
++	smi_msg->data[i+4] = (msg->netfn << 2) | (ipmb_addr->lun & 0x3);
++	smi_msg->data[i+5] = ipmb_checksum(&(smi_msg->data[i+3]), 2);
++	smi_msg->data[i+6] = source_address;
++	smi_msg->data[i+7] = (ipmb_seq << 2) | source_lun;
++	smi_msg->data[i+8] = msg->cmd;
++
++	/* Now tack on the data to the message. */
++	if (msg->data_len > 0)
++		memcpy(&(smi_msg->data[i+9]), msg->data,
++		       msg->data_len);
++	smi_msg->data_size = msg->data_len + 9;
++
++	/* Now calculate the checksum and tack it on. */
++	smi_msg->data[i+smi_msg->data_size]
++		= ipmb_checksum(&(smi_msg->data[i+6]),
++				smi_msg->data_size-6);
++
++	/* Add on the checksum size and the offset from the
++	   broadcast. */
++	smi_msg->data_size += 1 + i;
++
++	smi_msg->msgid = msgid;
++}
++
++/* Separate from ipmi_request so that the user does not have to be
++   supplied in certain circumstances (mainly at panic time).  If
++   messages are supplied, they will be freed, even if an error
++   occurs. */
++static inline int i_ipmi_request(ipmi_user_t          user,
++				 ipmi_smi_t           intf,
++				 struct ipmi_addr     *addr,
++				 long                 msgid,
++				 struct ipmi_msg      *msg,
++				 void                 *supplied_smi,
++				 struct ipmi_recv_msg *supplied_recv,
++				 int                  priority,
++				 unsigned char        source_address,
++				 unsigned char        source_lun)
++{
++	int                  rv = 0;
++	struct ipmi_smi_msg  *smi_msg;
++	struct ipmi_recv_msg *recv_msg;
++	unsigned long        flags;
++
++
++	if (supplied_recv) {
++		recv_msg = supplied_recv;
++	} else {
++		recv_msg = ipmi_alloc_recv_msg();
++		if (recv_msg == NULL) {
++			return -ENOMEM;
++		}
++	}
++
++	if (supplied_smi) {
++		smi_msg = (struct ipmi_smi_msg *) supplied_smi;
++	} else {
++		smi_msg = ipmi_alloc_smi_msg();
++		if (smi_msg == NULL) {
++			ipmi_free_recv_msg(recv_msg);
++			return -ENOMEM;
++		}
++	}
++
++	if (addr->channel > IPMI_NUM_CHANNELS) {
++	    rv = -EINVAL;
++	    goto out_err;
++	}
++
++	recv_msg->user = user;
++	recv_msg->msgid = msgid;
++	/* Store the message to send in the receive message so timeout
++	   responses can get the proper response data. */
++	recv_msg->msg = *msg;
++
++	if (addr->addr_type == IPMI_SYSTEM_INTERFACE_ADDR_TYPE) {
++		struct ipmi_system_interface_addr *smi_addr;
++
++
++		smi_addr = (struct ipmi_system_interface_addr *) addr;
++		if (smi_addr->lun > 3)
++			return -EINVAL;
++
++		memcpy(&recv_msg->addr, smi_addr, sizeof(*smi_addr));
++
++		if ((msg->netfn == IPMI_NETFN_APP_REQUEST)
++		    && ((msg->cmd == IPMI_SEND_MSG_CMD)
++			|| (msg->cmd == IPMI_GET_MSG_CMD)
++			|| (msg->cmd == IPMI_READ_EVENT_MSG_BUFFER_CMD)))
++		{
++			/* We don't let the user do these, since we manage
++			   the sequence numbers. */
++			rv = -EINVAL;
++			goto out_err;
++		}
++
++		if ((msg->data_len + 2) > IPMI_MAX_MSG_LENGTH) {
++			rv = -EMSGSIZE;
++			goto out_err;
++		}
++
++		smi_msg->data[0] = (msg->netfn << 2) | (smi_addr->lun & 0x3);
++		smi_msg->data[1] = msg->cmd;
++		smi_msg->msgid = msgid;
++		smi_msg->user_data = recv_msg;
++		if (msg->data_len > 0)
++			memcpy(&(smi_msg->data[2]), msg->data, msg->data_len);
++		smi_msg->data_size = msg->data_len + 2;
++	} else if ((addr->addr_type == IPMI_IPMB_ADDR_TYPE)
++		   || (addr->addr_type == IPMI_IPMB_BROADCAST_ADDR_TYPE))
++	{
++		struct ipmi_ipmb_addr *ipmb_addr;
++		unsigned char         ipmb_seq;
++		long                  seqid;
++		int                   broadcast;
++		int                   retries;
++
++		if (addr == NULL) {
++			rv = -EINVAL;
++			goto out_err;
++		}
++
++		if (addr->addr_type == IPMI_IPMB_BROADCAST_ADDR_TYPE) {
++		    /* Broadcasts add a zero at the beginning of the
++		       message, but otherwise is the same as an IPMB
++		       address. */
++		    addr->addr_type = IPMI_IPMB_ADDR_TYPE;
++		    broadcast = 1;
++		    retries = 0; /* Don't retry broadcasts. */
++		} else {
++		    broadcast = 0;
++		    retries = 4;
++		}
++
++		/* 9 for the header and 1 for the checksum, plus
++                   possibly one for the broadcast. */
++		if ((msg->data_len + 10 + broadcast) > IPMI_MAX_MSG_LENGTH) {
++			rv = -EMSGSIZE;
++			goto out_err;
++		}
++
++		ipmb_addr = (struct ipmi_ipmb_addr *) addr;
++		if (ipmb_addr->lun > 3) {
++			rv = -EINVAL;
++			goto out_err;
++		}
++
++		memcpy(&recv_msg->addr, ipmb_addr, sizeof(*ipmb_addr));
++
++		if (recv_msg->msg.netfn & 0x1) {
++			/* It's a response, so use the user's sequence
++                           from msgid. */
++			format_ipmb_msg(smi_msg, msg, ipmb_addr, msgid,
++					msgid, broadcast,
++					source_address, source_lun);
++		} else {
++			/* It's a command, so get a sequence for it. */
++
++			spin_lock_irqsave(&(intf->seq_lock), flags);
++
++			/* Create a sequence number with a 1 second
++                           timeout and 4 retries. */
++			/* FIXME - magic number for the timeout. */
++			rv = intf_next_seq(intf,
++					   recv_msg,
++					   1000,
++					   retries,
++					   &ipmb_seq,
++					   &seqid);
++			if (rv) {
++				/* We have used up all the sequence numbers,
++				   probably, so abort. */
++				spin_unlock_irqrestore(&(intf->seq_lock),
++						       flags);
++				ipmi_free_recv_msg(recv_msg);
++				ipmi_free_smi_msg(smi_msg);
++				goto out_err;
++			}
++
++			/* Store the sequence number in the message,
++                           so that when the send message response
++                           comes back we can start the timer. */
++			format_ipmb_msg(smi_msg, msg, ipmb_addr,
++					STORE_SEQ_IN_MSGID(ipmb_seq, seqid),
++					ipmb_seq, broadcast,
++					source_address, source_lun);
++
++			/* Copy the message into the recv message data, so we
++			   can retransmit it later if necessary. */
++			memcpy(recv_msg->msg_data, smi_msg->data,
++			       smi_msg->data_size);
++			recv_msg->msg.data = recv_msg->msg_data;
++			recv_msg->msg.data_len = smi_msg->data_size;
++
++			/* We don't unlock until here, because we need
++                           to copy the completed message into the
++                           recv_msg before we release the lock.
++                           Otherwise, race conditions may bite us.  I
++                           know that's pretty paranoid, but I prefer
++                           to be correct. */
++			spin_unlock_irqrestore(&(intf->seq_lock), flags);
++		}
++	} else {
++	    /* Unknown address type. */
++	    rv = -EINVAL;
++	    goto out_err;
++	}
++
++#if DEBUG_MSGING
++	{
++	    int m;
++	    for (m=0; m<smi_msg->data_size; m++)
++		printk(" %2.2x", smi_msg->data[m]);
++	    printk("\n");
++	}
++#endif
++	intf->handlers->sender(intf->send_info, smi_msg, priority);
++
++	return 0;
++
++ out_err:
++	ipmi_free_smi_msg(smi_msg);
++	ipmi_free_recv_msg(recv_msg);
++	return rv;
++}
++
++int ipmi_request(ipmi_user_t      user,
++		 struct ipmi_addr *addr,
++		 long             msgid,
++		 struct ipmi_msg  *msg,
++		 int              priority)
++{
++	return i_ipmi_request(user,
++			      user->intf,
++			      addr,
++			      msgid,
++			      msg,
++			      NULL, NULL,
++			      priority,
++			      user->intf->my_address,
++			      user->intf->my_lun);
++}
++
++int ipmi_request_supply_msgs(ipmi_user_t          user,
++			     struct ipmi_addr     *addr,
++			     long                 msgid,
++			     struct ipmi_msg      *msg,
++			     void                 *supplied_smi,
++			     struct ipmi_recv_msg *supplied_recv,
++			     int                  priority)
++{
++	return i_ipmi_request(user,
++			      user->intf,
++			      addr,
++			      msgid,
++			      msg,
++			      supplied_smi,
++			      supplied_recv,
++			      priority,
++			      user->intf->my_address,
++			      user->intf->my_lun);
++}
++
++int ipmi_request_with_source(ipmi_user_t      user,
++			     struct ipmi_addr *addr,
++			     long             msgid,
++			     struct ipmi_msg  *msg,
++			     int              priority,
++			     unsigned char    source_address,
++			     unsigned char    source_lun)
++{
++	return i_ipmi_request(user,
++			      user->intf,
++			      addr,
++			      msgid,
++			      msg,
++			      NULL, NULL,
++			      priority,
++			      source_address,
++			      source_lun);
++}
++
++int ipmi_register_smi(struct ipmi_smi_handlers *handlers,
++		      void		       *send_info,
++		      unsigned char            version_major,
++		      unsigned char            version_minor,
++		      ipmi_smi_t               *intf)
++{
++	int              i, j;
++	int              rv;
++	ipmi_smi_t       new_intf;
++	struct list_head *entry;
++	unsigned int     flags;
++
++
++	/* Make sure the driver is actually initialized, this handles
++	   problems with initialization order. */
++	if (!initialized) {
++		rv = ipmi_init_msghandler();
++		if (rv)
++			return rv;
++		/* The init code doesn't return an error if it was turned
++		   off, but it won't initialize.  Check that. */
++		if (!initialized)
++			return -ENODEV;
++	}
++
++	new_intf = kmalloc(sizeof(*new_intf), GFP_KERNEL);
++	if (!new_intf)
++		return -ENOMEM;
++
++	rv = -ENOMEM;
++
++	down_write(&interfaces_sem);
++	for (i=0; i<MAX_IPMI_INTERFACES; i++) {
++		if (ipmi_interfaces[i] == NULL) {
++			new_intf->version_major = version_major;
++			new_intf->version_minor = version_minor;
++			new_intf->my_address = IPMI_BMC_SLAVE_ADDR;
++			new_intf->my_lun = 2;  /* the SMS LUN. */
++			rwlock_init(&(new_intf->users_lock));
++			INIT_LIST_HEAD(&(new_intf->users));
++			new_intf->handlers = handlers;
++			new_intf->send_info = send_info;
++			spin_lock_init(&(new_intf->seq_lock));
++			for (j=0; j<IPMI_IPMB_NUM_SEQ; j++) {
++				new_intf->seq_table[j].inuse = 0;
++				new_intf->seq_table[j].seqid = 0;
++			}
++			new_intf->curr_seq = 0;
++			spin_lock_init(&(new_intf->waiting_msgs_lock));
++			INIT_LIST_HEAD(&(new_intf->waiting_msgs));
++			spin_lock_init(&(new_intf->events_lock));
++			INIT_LIST_HEAD(&(new_intf->waiting_events));
++			new_intf->waiting_events_count = 0;
++			rwlock_init(&(new_intf->cmd_rcvr_lock));
++			INIT_LIST_HEAD(&(new_intf->cmd_rcvrs));
++			new_intf->all_cmd_rcvr = NULL;
++
++			spin_lock_irqsave(&interfaces_lock, flags);
++			ipmi_interfaces[i] = new_intf;
++			spin_unlock_irqrestore(&interfaces_lock, flags);
++
++			rv = 0;
++			*intf = new_intf;
++			break;
++		}
++	}
++
++	/* We convert to a read semaphore here.  It's possible the
++	   interface was removed between the calls, we have to recheck
++	   afterwards. */
++	up_write(&interfaces_sem);
++	down_read(&interfaces_sem);
++
++	if (ipmi_interfaces[i] != new_intf)
++		/* Well, it went away.  Just return. */
++		goto out;
++
++	if (rv == 0) {
++		/* Call all the watcher interfaces to tell them that a
++		   new interface is available. */
++		down_read(&smi_watchers_sem);
++		list_for_each(entry, &smi_watchers) {
++			struct ipmi_smi_watcher *w;
++			w = list_entry(entry, struct ipmi_smi_watcher, link);
++			w->new_smi(i);
++		}
++		up_read(&smi_watchers_sem);
++	}
++
++ out:
++	up_read(&interfaces_sem);
++
++	if (rv)
++		kfree(new_intf);
++
++	return rv;
++}
++
++static void free_recv_msg_list(struct list_head *q)
++{
++	struct list_head     *entry, *entry2;
++	struct ipmi_recv_msg *msg;
++
++	list_for_each_safe(entry, entry2, q) {
++		msg = list_entry(entry, struct ipmi_recv_msg, link);
++		list_del(entry);
++		ipmi_free_recv_msg(msg);
++	}
++}
++
++static void free_cmd_rcvr_list(struct list_head *q)
++{
++	struct list_head *entry, *entry2;
++	struct cmd_rcvr  *rcvr;
++
++	list_for_each_safe(entry, entry2, q) {
++		rcvr = list_entry(entry, struct cmd_rcvr, link);
++		list_del(entry);
++		kfree(rcvr);
++	}
++}
++
++static void clean_up_interface_data(ipmi_smi_t intf)
++{
++	int i;
++
++	free_recv_msg_list(&(intf->waiting_msgs));
++	free_recv_msg_list(&(intf->waiting_events));
++	free_cmd_rcvr_list(&(intf->cmd_rcvrs));
++
++	for (i=0; i<IPMI_IPMB_NUM_SEQ; i++) {
++		if ((intf->seq_table[i].inuse)
++		    && (intf->seq_table[i].recv_msg))
++		{
++			ipmi_free_recv_msg(intf->seq_table[i].recv_msg);
++		}	
++	}
++}
++
++int ipmi_unregister_smi(ipmi_smi_t intf)
++{
++	int              rv = -ENODEV;
++	int              i;
++	struct list_head *entry;
++	unsigned int     flags;
++
++	down_write(&interfaces_sem);
++	if (list_empty(&(intf->users)))
++	{
++		for (i=0; i<MAX_IPMI_INTERFACES; i++) {
++			if (ipmi_interfaces[i] == intf) {
++				spin_lock_irqsave(&interfaces_lock, flags);
++				ipmi_interfaces[i] = NULL;
++				clean_up_interface_data(intf);
++				spin_unlock_irqrestore(&interfaces_lock,flags);
++				kfree(intf);
++				rv = 0;
++				goto out_call_watcher;
++			}
++		}
++	} else {
++		rv = -EBUSY;
++	}
++	up_write(&interfaces_sem);
++
++	return rv;
++
++ out_call_watcher:
++	/* Convert to a read semaphore so callbacks don't bite us. */
++	up_write(&interfaces_sem);
++	down_read(&interfaces_sem);
++
++	/* Call all the watcher interfaces to tell them that
++	   an interface is gone. */
++	down_read(&smi_watchers_sem);
++	list_for_each(entry, &smi_watchers) {
++		struct ipmi_smi_watcher *w;
++		w = list_entry(entry,
++			       struct ipmi_smi_watcher,
++			       link);
++		w->smi_gone(i);
++	}
++	up_read(&smi_watchers_sem);
++	up_read(&interfaces_sem);
++	return 0;
++}
++
++static int handle_get_msg_rsp(ipmi_smi_t          intf,
++			      struct ipmi_smi_msg *msg)
++{
++	struct ipmi_ipmb_addr ipmb_addr;
++	struct ipmi_recv_msg  *recv_msg;
++
++	
++	if (msg->rsp_size < 11)
++		/* Message not big enough, just ignore it. */
++		return 0;
++
++	if (msg->rsp[2] != 0)
++		/* An error getting the response, just ignore it. */
++		return 0;
++
++	ipmb_addr.addr_type = IPMI_IPMB_ADDR_TYPE;
++	ipmb_addr.slave_addr = msg->rsp[6];
++	ipmb_addr.channel = msg->rsp[3] & 0x0f;
++	ipmb_addr.lun = msg->rsp[7] & 3;
++
++	/* It's a response from a remote entity.  Look up the sequence
++	   number and handle the response. */
++	if (intf_find_seq(intf,
++			  msg->rsp[7] >> 2,
++			  msg->rsp[3] & 0x0f,
++			  msg->rsp[8],
++			  (msg->rsp[4] >> 2) & (~1),
++			  (struct ipmi_addr *) &(ipmb_addr),
++			  &recv_msg))
++	{
++		/* We were unable to find the sequence number,
++		   so just nuke the message. */
++		return 0;
++	}
++
++	memcpy(recv_msg->msg_data,
++	       &(msg->rsp[9]),
++	       msg->rsp_size - 9);
++	/* THe other fields matched, so no need to set them, except
++           for netfn, which needs to be the response that was
++           returned, not the request value. */
++	recv_msg->msg.netfn = msg->rsp[4] >> 2;
++	recv_msg->msg.data = recv_msg->msg_data;
++	recv_msg->msg.data_len = msg->rsp_size - 10;
++	recv_msg->recv_type = IPMI_RESPONSE_RECV_TYPE;
++	deliver_response(recv_msg);
++
++	return 0;
++}
++
++static int handle_get_msg_cmd(ipmi_smi_t          intf,
++			      struct ipmi_smi_msg *msg)
++{
++	struct list_head *entry;
++	struct cmd_rcvr       *rcvr;
++	int              rv = 0;
++	unsigned char    netfn;
++	unsigned char    cmd;
++	ipmi_user_t      user = NULL;
++	struct ipmi_ipmb_addr *ipmb_addr;
++	struct ipmi_recv_msg  *recv_msg;
++
++	if (msg->rsp_size < 10)
++		/* Message not big enough, just ignore it. */
++		return 0;
++
++	if (msg->rsp[2] != 0) {
++		/* An error getting the response, just ignore it. */
++		return 0;
++	}
++
++	netfn = msg->rsp[4] >> 2;
++	cmd = msg->rsp[8];
++
++	read_lock(&(intf->cmd_rcvr_lock));
++	
++	if (intf->all_cmd_rcvr) {
++		user = intf->all_cmd_rcvr;
++	} else {
++		/* Find the command/netfn. */
++		list_for_each(entry, &(intf->cmd_rcvrs)) {
++			rcvr = list_entry(entry, struct cmd_rcvr, link);
++			if ((rcvr->netfn == netfn) && (rcvr->cmd == cmd)) {
++				user = rcvr->user;
++				break;
++			}
++		}
++	}
++	read_unlock(&(intf->cmd_rcvr_lock));
++
++	if (user == NULL) {
++		/* We didn't find a user, deliver an error response. */
++		msg->data[0] = (IPMI_NETFN_APP_REQUEST << 2);
++		msg->data[1] = IPMI_SEND_MSG_CMD;
++		msg->data[2] = msg->rsp[3];
++		msg->data[3] = msg->rsp[6];
++                msg->data[4] = ((netfn + 1) << 2) | (msg->rsp[7] & 0x3);
++		msg->data[5] = ipmb_checksum(&(msg->data[3]), 2);
++		msg->data[6] = intf->my_address;
++                /* rqseq/lun */
++                msg->data[7] = (msg->rsp[7] & 0xfc) | (msg->rsp[4] & 0x3);
++		msg->data[8] = msg->rsp[8]; /* cmd */
++		msg->data[9] = IPMI_INVALID_CMD_COMPLETION_CODE;
++		msg->data[10] = ipmb_checksum(&(msg->data[6]), 4);
++		msg->data_size = 11;
++
++		intf->handlers->sender(intf->send_info, msg, 0);
++
++		rv = -1; /* We used the message, so return the value that
++			    causes it to not be freed or queued. */
++	} else {
++		/* Deliver the message to the user. */
++		recv_msg = ipmi_alloc_recv_msg();
++		if (! recv_msg) {
++			/* We couldn't allocate memory for the
++                           message, so requeue it for handling
++                           later. */
++			rv = 1;
++		} else {
++			ipmb_addr = (struct ipmi_ipmb_addr *) &recv_msg->addr;
++			ipmb_addr->addr_type = IPMI_IPMB_ADDR_TYPE;
++			ipmb_addr->slave_addr = msg->rsp[6];
++			ipmb_addr->lun = msg->rsp[7] & 3;
++			ipmb_addr->channel = msg->rsp[3];
++
++			recv_msg->user = user;
++			recv_msg->recv_type = IPMI_CMD_RECV_TYPE;
++			recv_msg->msgid = msg->rsp[7] >> 2;
++			recv_msg->msg.netfn = msg->rsp[4] >> 2;
++			recv_msg->msg.cmd = msg->rsp[8];
++			recv_msg->msg.data = recv_msg->msg_data;
++			recv_msg->msg.data_len = msg->rsp_size - 10;
++			memcpy(recv_msg->msg_data,
++			       &(msg->rsp[9]),
++			       msg->rsp_size - 10);
++			deliver_response(recv_msg);
++		}
++	}
++
++	return rv;
++}
++
++static void copy_event_into_recv_msg(struct ipmi_recv_msg *recv_msg,
++				     struct ipmi_smi_msg  *msg)
++{
++	struct ipmi_system_interface_addr *smi_addr;
++	
++	recv_msg->msgid = 0;
++	smi_addr = (struct ipmi_system_interface_addr *) &(recv_msg->addr);
++	smi_addr->addr_type = IPMI_SYSTEM_INTERFACE_ADDR_TYPE;
++	smi_addr->channel = IPMI_BMC_CHANNEL;
++	smi_addr->lun = msg->rsp[0] & 3;
++	recv_msg->recv_type = IPMI_ASYNC_EVENT_RECV_TYPE;
++	recv_msg->msg.netfn = msg->rsp[0] >> 2;
++	recv_msg->msg.cmd = msg->rsp[1];
++	memcpy(recv_msg->msg_data, &(msg->rsp[3]), msg->rsp_size - 3);
++	recv_msg->msg.data = recv_msg->msg_data;
++	recv_msg->msg.data_len = msg->rsp_size - 3;
++}
++
++/* This will be called with the intf->users_lock read-locked, so no need
++   to do that here. */
++static int handle_read_event_rsp(ipmi_smi_t          intf,
++				 struct ipmi_smi_msg *msg)
++{
++	struct ipmi_recv_msg *recv_msg;
++	struct list_head     msgs;
++	struct list_head     *entry, *entry2;
++	ipmi_user_t          user;
++	int                  rv = 0;
++	int                  deliver_count = 0;
++	unsigned long        flags;
++
++	if (msg->rsp_size < 19) {
++		/* Message is too small to be an IPMB event. */
++		return 0;
++	}
++
++	if (msg->rsp[2] != 0) {
++		/* An error getting the event, just ignore it. */
++		return 0;
++	}
++
++	INIT_LIST_HEAD(&msgs);
++
++	spin_lock_irqsave(&(intf->events_lock), flags);
++
++	/* Allocate and fill in one message for every user that is getting
++	   events. */
++	list_for_each(entry, &(intf->users)) {
++		user = list_entry(entry, struct ipmi_user, link);
++
++		if (! user->gets_events)
++			continue;
++
++		recv_msg = ipmi_alloc_recv_msg();
++		if (! recv_msg) {
++			list_for_each_safe(entry, entry2, &msgs) {
++				recv_msg = list_entry(entry,
++						      struct ipmi_recv_msg,
++						      link);
++				list_del(entry);
++				ipmi_free_recv_msg(recv_msg);
++			}
++			/* We couldn't allocate memory for the
++                           message, so requeue it for handling
++                           later. */
++			rv = 1;
++			goto out;
++		}
++
++		deliver_count++;
++
++		copy_event_into_recv_msg(recv_msg, msg);
++		recv_msg->user = user;
++		list_add_tail(&(recv_msg->link), &msgs);
++	}
++
++	if (deliver_count) {
++		/* Now deliver all the messages. */
++		list_for_each_safe(entry, entry2, &msgs) {
++			recv_msg = list_entry(entry,
++					      struct ipmi_recv_msg,
++					      link);
++			list_del(entry);
++			deliver_response(recv_msg);
++		}
++	} else if (intf->waiting_events_count < MAX_EVENTS_IN_QUEUE) {
++		/* No one to receive the message, put it in queue if there's
++		   not already too many things in the queue. */
++		recv_msg = ipmi_alloc_recv_msg();
++		if (! recv_msg) {
++			/* We couldn't allocate memory for the
++                           message, so requeue it for handling
++                           later. */
++			rv = 1;
++			goto out;
++		}
++
++		copy_event_into_recv_msg(recv_msg, msg);
++		list_add_tail(&(recv_msg->link), &(intf->waiting_events));
++	} else {
++		/* There's too many things in the queue, discard this
++		   message. */
++		printk(KERN_WARNING "ipmi: Event queue full, discarding an"
++		       " incoming event\n");
++	}
++
++ out:
++	spin_unlock_irqrestore(&(intf->events_lock), flags);
++
++	return rv;
++}
++
++static int handle_bmc_rsp(ipmi_smi_t          intf,
++			  struct ipmi_smi_msg *msg)
++{
++	struct ipmi_recv_msg *recv_msg;
++	int                  found = 0;
++	struct list_head     *entry;
++
++	recv_msg = (struct ipmi_recv_msg *) msg->user_data;
++
++	/* Make sure the user still exists. */
++	list_for_each(entry, &(intf->users)) {
++		if (list_entry(entry, struct ipmi_user, link)
++		    == recv_msg->user)
++		{
++			/* Found it, so we can deliver it */
++			found = 1;
++			break;
++		}
++	}
++
++	if (!found) {
++		/* The user for the message went away, so give up. */
++		ipmi_free_recv_msg(recv_msg);
++	} else {
++		struct ipmi_system_interface_addr *smi_addr;
++
++		recv_msg->recv_type = IPMI_RESPONSE_RECV_TYPE;
++		recv_msg->msgid = msg->msgid;
++		smi_addr = ((struct ipmi_system_interface_addr *)
++			    &(recv_msg->addr));
++		smi_addr->addr_type = IPMI_SYSTEM_INTERFACE_ADDR_TYPE;
++		smi_addr->channel = IPMI_BMC_CHANNEL;
++		smi_addr->lun = msg->rsp[0] & 3;
++		recv_msg->msg.netfn = msg->rsp[0] >> 2;
++		recv_msg->msg.cmd = msg->rsp[1];
++		memcpy(recv_msg->msg_data,
++		       &(msg->rsp[2]),
++		       msg->rsp_size - 2);
++		recv_msg->msg.data = recv_msg->msg_data;
++		recv_msg->msg.data_len = msg->rsp_size - 2;
++		deliver_response(recv_msg);
++	}
++
++	return 0;
++}
++
++/* Handle a new message.  Return 1 if the message should be requeued,
++   0 if the message should be freed, or -1 if the message should not
++   be freed or requeued. */
++static int handle_new_recv_msg(ipmi_smi_t          intf,
++			       struct ipmi_smi_msg *msg)
++{
++	int requeue;
++
++	if (msg->rsp_size < 2) {
++		/* Message is too small to be correct. */
++		requeue = 0;
++	} else if (msg->rsp[1] == IPMI_GET_MSG_CMD) {
++#if DEBUG_MSGING
++		int m;
++		printk("Response:");
++		for (m=0; m<msg->rsp_size; m++)
++			printk(" %2.2x", msg->rsp[m]);
++		printk("\n");
++#endif
++		/* It's from the receive queue. */
++		if (msg->rsp[4] & 0x04) {
++			/* It's a response, so find the
++			   requesting message and send it up. */
++			requeue = handle_get_msg_rsp(intf, msg);
++		} else {
++			/* It's a command to the SMS from some other
++			   entity.  Handle that. */
++			requeue = handle_get_msg_cmd(intf, msg);
++		}
++	} else if (msg->rsp[1] == IPMI_READ_EVENT_MSG_BUFFER_CMD) {
++		/* It's an asyncronous event. */
++		requeue = handle_read_event_rsp(intf, msg);
++	} else {
++		/* It's a response from the local BMC. */
++		requeue = handle_bmc_rsp(intf, msg);
++	}
++
++	return requeue;
++}
++
++/* Handle a new message from the lower layer. */
++void ipmi_smi_msg_received(ipmi_smi_t          intf,
++			   struct ipmi_smi_msg *msg)
++{
++	unsigned long flags;
++	int           rv;
++
++
++	/* Lock the user lock so the user can't go away while we are
++	   working on it. */
++	read_lock(&(intf->users_lock));
++
++	if ((msg->data_size >= 2) && (msg->data[1] == IPMI_SEND_MSG_CMD)) {
++		/* This is the local response to a send, start the
++                   timer for these. */
++		intf_start_seq_timer(intf, msg->msgid);
++		ipmi_free_smi_msg(msg);
++		goto out_unlock;
++	}
++
++	/* To preserve message order, if the list is not empty, we
++           tack this message onto the end of the list. */
++	spin_lock_irqsave(&(intf->waiting_msgs_lock), flags);
++	if (!list_empty(&(intf->waiting_msgs))) {
++		list_add_tail(&(msg->link), &(intf->waiting_msgs));
++		spin_unlock(&(intf->waiting_msgs_lock));
++		goto out_unlock;
++	}
++	spin_unlock_irqrestore(&(intf->waiting_msgs_lock), flags);
++		
++	rv = handle_new_recv_msg(intf, msg);
++	if (rv > 0) {
++		/* Could not handle the message now, just add it to a
++                   list to handle later. */
++		spin_lock(&(intf->waiting_msgs_lock));
++		list_add_tail(&(msg->link), &(intf->waiting_msgs));
++		spin_unlock(&(intf->waiting_msgs_lock));
++	} else if (rv == 0) {
++		ipmi_free_smi_msg(msg);
++	}
++
++ out_unlock:
++	read_unlock(&(intf->users_lock));
++}
++
++void ipmi_smi_watchdog_pretimeout(ipmi_smi_t intf)
++{
++	struct list_head *entry;
++	ipmi_user_t      user;
++
++	read_lock(&(intf->users_lock));
++	list_for_each(entry, &(intf->users)) {
++		user = list_entry(entry, struct ipmi_user, link);
++
++		if (! user->handler->ipmi_watchdog_pretimeout)
++			continue;
++
++		user->handler->ipmi_watchdog_pretimeout(user->handler_data);
++	}
++	read_unlock(&(intf->users_lock));
++}
++
++static void
++handle_msg_timeout(struct ipmi_recv_msg *msg)
++{
++	msg->recv_type = IPMI_RESPONSE_RECV_TYPE;
++	msg->msg_data[0] = IPMI_TIMEOUT_COMPLETION_CODE;
++	msg->msg.netfn |= 1; /* Convert to a response. */
++	msg->msg.data_len = 1;
++	msg->msg.data = msg->msg_data;
++	deliver_response(msg);
++}
++
++static void
++send_from_recv_msg(ipmi_smi_t intf, struct ipmi_recv_msg *recv_msg,
++		   struct ipmi_smi_msg *smi_msg,
++		   unsigned char seq, long seqid)
++{
++	if (!smi_msg)
++		smi_msg = ipmi_alloc_smi_msg();
++	if (!smi_msg)
++		/* If we can't allocate the message, then just return, we
++		   get 4 retries, so this should be ok. */
++		return;
++
++	memcpy(smi_msg->data, recv_msg->msg.data, recv_msg->msg.data_len);
++	smi_msg->data_size = recv_msg->msg.data_len;
++	smi_msg->msgid = STORE_SEQ_IN_MSGID(seq, seqid);
++		
++	/* Send the new message.  We send with a zero priority.  It
++	   timed out, I doubt time is that critical now, and high
++	   priority messages are really only for messages to the local
++	   MC, which don't get resent. */
++	intf->handlers->sender(intf->send_info, smi_msg, 0);
++
++#if DEBUG_MSGING
++	{
++		int m;
++		printk("Resend: ");
++		for (m=0; m<smi_msg->data_size; m++)
++			printk(" %2.2x", smi_msg->data[m]);
++		printk("\n");
++	}
++#endif
++}
++
++static void
++ipmi_timeout_handler(long timeout_period)
++{
++	ipmi_smi_t           intf;
++	struct list_head     timeouts;
++	struct ipmi_recv_msg *msg;
++	struct ipmi_smi_msg  *smi_msg;
++	unsigned long        flags;
++	struct list_head     *entry, *entry2;
++	int                  i, j;
++
++	INIT_LIST_HEAD(&timeouts);
++
++	spin_lock(&interfaces_lock);
++	for (i=0; i<MAX_IPMI_INTERFACES; i++) {
++		intf = ipmi_interfaces[i];
++		if (intf == NULL)
++			continue;
++
++		read_lock(&(intf->users_lock));
++
++		/* See if any waiting messages need to be processed. */
++		spin_lock_irqsave(&(intf->waiting_msgs_lock), flags);
++		list_for_each_safe(entry, entry2, &(intf->waiting_msgs)) {
++			smi_msg = list_entry(entry, struct ipmi_smi_msg, link);
++			if (! handle_new_recv_msg(intf, smi_msg)) {
++				list_del(entry);
++				ipmi_free_smi_msg(smi_msg);
++			} else {
++				/* To preserve message order, quit if we
++				   can't handle a message. */
++				break;
++			}
++		}
++		spin_unlock_irqrestore(&(intf->waiting_msgs_lock), flags);
++
++		/* Go through the seq table and find any messages that
++		   have timed out, putting them in the timeouts
++		   list. */
++		spin_lock_irqsave(&(intf->seq_lock), flags);
++		for (j=0; j<IPMI_IPMB_NUM_SEQ; j++) {
++			struct seq_table *ent = &(intf->seq_table[j]);
++			if (!ent->inuse)
++				continue;
++
++			ent->timeout -= timeout_period;
++			if (ent->timeout > 0)
++				continue;
++
++			if (ent->retries_left == 0) {
++				/* The message has used all its retries. */
++				ent->inuse = 0;
++				msg = ent->recv_msg;
++				list_add_tail(&(msg->link), &timeouts);
++			} else {
++				/* More retries, send again. */
++
++				/* Start with the max timer, set to normal
++				   timer after the message is sent. */
++				ent->timeout = MAX_MSG_TIMEOUT;
++				ent->retries_left--;
++				send_from_recv_msg(intf, ent->recv_msg, NULL,
++						   j, ent->seqid);
++			}
++		}
++		spin_unlock_irqrestore(&(intf->seq_lock), flags);
++
++		list_for_each_safe(entry, entry2, &timeouts) {
++			msg = list_entry(entry, struct ipmi_recv_msg, link);
++			handle_msg_timeout(msg);
++		}
++
++		read_unlock(&(intf->users_lock));
++	}
++	spin_unlock(&interfaces_lock);
++}
++
++static void ipmi_request_event(void)
++{
++	ipmi_smi_t intf;
++	int        i;
++
++	spin_lock(&interfaces_lock);
++	for (i=0; i<MAX_IPMI_INTERFACES; i++) {
++		intf = ipmi_interfaces[i];
++		if (intf == NULL)
++			continue;
++
++		intf->handlers->request_events(intf->send_info);
++	}
++	spin_unlock(&interfaces_lock);
++}
++
++static struct timer_list ipmi_timer;
++
++/* Call every 100 ms. */
++#define IPMI_TIMEOUT_TIME	100
++#define IPMI_TIMEOUT_JIFFIES	(IPMI_TIMEOUT_TIME/(1000/HZ))
++
++/* Request events from the queue every second.  Hopefully, in the
++   future, IPMI will add a way to know immediately if an event is
++   in the queue. */
++#define IPMI_REQUEST_EV_TIME	(1000 / (IPMI_TIMEOUT_TIME))
++
++static volatile int stop_operation = 0;
++static volatile int timer_stopped = 0;
++static unsigned int ticks_to_req_ev = IPMI_REQUEST_EV_TIME;
++
++static void ipmi_timeout(unsigned long data)
++{
++	if (stop_operation) {
++		timer_stopped = 1;
++		return;
++	}
++
++	ticks_to_req_ev--;
++	if (ticks_to_req_ev == 0) {
++		ipmi_request_event();
++		ticks_to_req_ev = IPMI_REQUEST_EV_TIME;
++	}
++
++	ipmi_timeout_handler(IPMI_TIMEOUT_TIME);
++
++	ipmi_timer.expires += IPMI_TIMEOUT_JIFFIES;
++	add_timer(&ipmi_timer);
++}
++
++
++/* FIXME - convert these to slabs. */
++static void free_smi_msg(struct ipmi_smi_msg *msg)
++{
++	kfree(msg);
++}
++
++struct ipmi_smi_msg *ipmi_alloc_smi_msg(void)
++{
++	struct ipmi_smi_msg *rv;
++	rv = kmalloc(sizeof(struct ipmi_smi_msg), GFP_ATOMIC);
++	if (rv)
++		rv->done = free_smi_msg;
++	return rv;
++}
++
++static void free_recv_msg(struct ipmi_recv_msg *msg)
++{
++	kfree(msg);
++}
++
++struct ipmi_recv_msg *ipmi_alloc_recv_msg(void)
++{
++	struct ipmi_recv_msg *rv;
++
++	rv = kmalloc(sizeof(struct ipmi_recv_msg), GFP_ATOMIC);
++	if (rv)
++		rv->done = free_recv_msg;
++	return rv;
++}
++
++#ifdef CONFIG_IPMI_PANIC_EVENT
++
++static void dummy_smi_done_handler(struct ipmi_smi_msg *msg)
++{
++}
++
++static void dummy_recv_done_handler(struct ipmi_recv_msg *msg)
++{
++}
++
++static void send_panic_events(void)
++{
++	struct ipmi_msg                   msg;
++	ipmi_smi_t                        intf;
++	unsigned char                     data[8];
++	int                               i;
++	struct ipmi_system_interface_addr addr;
++	struct ipmi_smi_msg               smi_msg;
++	struct ipmi_recv_msg              recv_msg;
++
++	addr.addr_type = IPMI_SYSTEM_INTERFACE_ADDR_TYPE;
++	addr.channel = IPMI_BMC_CHANNEL;
++
++	/* Fill in an event telling that we have failed. */
++	msg.netfn = 0x04; /* Sensor or Event. */
++	msg.cmd = 2; /* Platform event command. */
++	msg.data = data;
++	msg.data_len = 8;
++	data[0] = 0x21; /* Kernel generator ID, IPMI table 5-4 */
++	data[1] = 0x03; /* This is for IPMI 1.0. */
++	data[2] = 0x20; /* OS Critical Stop, IPMI table 36-3 */
++	data[4] = 0x6f; /* Sensor specific, IPMI table 36-1 */
++	data[5] = 0xa1; /* Runtime stop OEM bytes 2 & 3. */
++
++	/* These used to have the first three bytes of the panic string,
++	   but not only is that not terribly useful, it's not available
++	   any more. */
++	data[3] = 0;
++	data[6] = 0;
++	data[7] = 0;
++
++	smi_msg.done = dummy_smi_done_handler;
++	recv_msg.done = dummy_recv_done_handler;
++
++	/* For every registered interface, send the event. */
++	for (i=0; i<MAX_IPMI_INTERFACES; i++) {
++		intf = ipmi_interfaces[i];
++		if (intf == NULL)
++			continue;
++
++		intf->handlers->set_run_to_completion(intf->send_info, 1);
++		i_ipmi_request(NULL,
++			       intf,
++			       (struct ipmi_addr *) &addr,
++			       0,
++			       &msg,
++			       &smi_msg,
++			       &recv_msg,
++			       0,
++			       intf->my_address,
++			       intf->my_lun);
++	}
++}
++#endif /* CONFIG_IPMI_PANIC_EVENT */
++
++static int has_paniced = 0;
++
++static int panic_event(struct notifier_block *this,
++		       unsigned long         event,
++                       void                  *ptr)
++{
++	int        i;
++	ipmi_smi_t intf;
++
++	if (has_paniced)
++		return NOTIFY_DONE;
++	has_paniced = 1;
++
++	/* For every registered interface, set it to run to completion. */
++	for (i=0; i<MAX_IPMI_INTERFACES; i++) {
++		intf = ipmi_interfaces[i];
++		if (intf == NULL)
++			continue;
++
++		intf->handlers->set_run_to_completion(intf->send_info, 1);
++	}
++
++#ifdef CONFIG_IPMI_PANIC_EVENT
++	send_panic_events();
++#endif
++
++	return NOTIFY_DONE;
++}
++
++static struct notifier_block panic_block = {
++	panic_event,
++	NULL,
++	200   /* priority: INT_MAX >= x >= 0 */
++};
++
++
++static __init int ipmi_init_msghandler(void)
++{
++	int i;
++
++	if (initialized)
++		return 0;
++
++	for (i=0; i<MAX_IPMI_INTERFACES; i++) {
++		ipmi_interfaces[i] = NULL;
++	}
++
++	init_timer(&ipmi_timer);
++	ipmi_timer.data = 0;
++	ipmi_timer.function = ipmi_timeout;
++	ipmi_timer.expires = jiffies + IPMI_TIMEOUT_JIFFIES;
++	add_timer(&ipmi_timer);
++
++	notifier_chain_register(&panic_notifier_list, &panic_block);
++
++	initialized = 1;
++
++	printk(KERN_INFO "ipmi: message handler initialized\n");
++
++	return 0;
++}
++
++static __exit void cleanup_ipmi(void)
++{
++	if (!initialized)
++		return;
++
++	notifier_chain_unregister(&panic_notifier_list, &panic_block);
++
++	/* This can't be called if any interfaces exist, so no worry about
++	   shutting down the interfaces. */
++
++	/* Tell the timer to stop, then wait for it to stop.  This avoids
++	   problems with race conditions removing the timer here. */
++	stop_operation = 1;
++	while (!timer_stopped) {
++		schedule_timeout(1);
++	}
++
++	initialized = 0;
++}
++module_exit(cleanup_ipmi);
++
++module_init(ipmi_init_msghandler);
++MODULE_LICENSE("GPL");
++
++EXPORT_SYMBOL(ipmi_alloc_recv_msg);
++EXPORT_SYMBOL(ipmi_create_user);
++EXPORT_SYMBOL(ipmi_destroy_user);
++EXPORT_SYMBOL(ipmi_get_version);
++EXPORT_SYMBOL(ipmi_request);
++EXPORT_SYMBOL(ipmi_request_supply_msgs);
++EXPORT_SYMBOL(ipmi_request_with_source);
++EXPORT_SYMBOL(ipmi_register_smi);
++EXPORT_SYMBOL(ipmi_unregister_smi);
++EXPORT_SYMBOL(ipmi_register_for_cmd);
++EXPORT_SYMBOL(ipmi_unregister_for_cmd);
++EXPORT_SYMBOL(ipmi_smi_msg_received);
++EXPORT_SYMBOL(ipmi_smi_watchdog_pretimeout);
++EXPORT_SYMBOL(ipmi_alloc_smi_msg);
++EXPORT_SYMBOL(ipmi_register_all_cmd_rcvr);
++EXPORT_SYMBOL(ipmi_unregister_all_cmd_rcvr);
++EXPORT_SYMBOL(ipmi_addr_length);
++EXPORT_SYMBOL(ipmi_validate_addr);
++EXPORT_SYMBOL(ipmi_set_gets_events);
++EXPORT_SYMBOL(ipmi_addr_equal);
++EXPORT_SYMBOL(ipmi_smi_watcher_register);
++EXPORT_SYMBOL(ipmi_smi_watcher_unregister);
++EXPORT_SYMBOL(ipmi_set_my_address);
++EXPORT_SYMBOL(ipmi_get_my_address);
++EXPORT_SYMBOL(ipmi_set_my_LUN);
++EXPORT_SYMBOL(ipmi_get_my_LUN);
+--- /dev/null	2002-08-30 19:31:37.000000000 -0400
++++ linux-2.4.18-14/drivers/char/ipmi/ipmi_watchdog.c	2003-03-27 15:26:22.000000000 -0500
+@@ -0,0 +1,1113 @@
++/*
++ * ipmi_watchdog.c
++ *
++ * A watchdog timer based upon the IPMI interface.
++ *
++ * Author: MontaVista Software, Inc.
++ *         Corey Minyard <minyard@mvista.com>
++ *         source@mvista.com
++ *
++ * Copyright 2002 MontaVista Software Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License as published by the
++ *  Free Software Foundation; either version 2 of the License, or (at your
++ *  option) any later version.
++ *
++ *
++ *  THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
++ *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ *  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ *  OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ *  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ *  TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ *  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++#include <linux/config.h>
++#include <linux/module.h>
++#include <linux/ipmi.h>
++#include <linux/ipmi_smi.h>
++#include <linux/watchdog.h>
++#include <linux/miscdevice.h>
++#include <linux/init.h>
++#include <linux/rwsem.h>
++#include <linux/errno.h>
++#include <asm/uaccess.h>
++#include <linux/notifier.h>
++#include <linux/nmi.h>
++#include <linux/reboot.h>
++#include <linux/wait.h>
++#include <linux/poll.h>
++#ifdef CONFIG_X86_LOCAL_APIC
++#include <asm/apic.h>
++#endif
++
++/*
++ * The IPMI command/response information for the watchdog timer.
++ */
++
++/* values for byte 1 of the set command, byte 2 of the get response. */
++#define WDOG_DONT_LOG		(1 << 7)
++#define WDOG_DONT_STOP_ON_SET	(1 << 6)
++#define WDOG_SET_TIMER_USE(byte, use) \
++	byte = ((byte) & 0xf8) | ((use) & 0x7)
++#define WDOG_GET_TIMER_USE(byte) ((byte) & 0x7)
++#define WDOG_TIMER_USE_BIOS_FRB2	1
++#define WDOG_TIMER_USE_BIOS_POST	2
++#define WDOG_TIMER_USE_OS_LOAD		3
++#define WDOG_TIMER_USE_SMS_OS		4
++#define WDOG_TIMER_USE_OEM		5
++
++/* values for byte 2 of the set command, byte 3 of the get response. */
++#define WDOG_SET_PRETIMEOUT_ACT(byte, use) \
++	byte = ((byte) & 0x8f) | (((use) & 0x7) << 4)
++#define WDOG_GET_PRETIMEOUT_ACT(byte) (((byte) >> 4) & 0x7)
++#define WDOG_PRETIMEOUT_NONE		0
++#define WDOG_PRETIMEOUT_SMI		1
++#define WDOG_PRETIMEOUT_NMI		2
++#define WDOG_PRETIMEOUT_MSG_INT		3
++
++/* Operations that can be performed on a pretimout. */
++#define WDOG_PREOP_NONE		0
++#define WDOG_PREOP_PANIC	1
++#define WDOG_PREOP_GIVE_DATA	2 /* Cause data to be available to
++                                     read.  Doesn't work in NMI
++                                     mode. */
++
++/* Actions to perform on a full timeout. */
++#define WDOG_SET_TIMEOUT_ACT(byte, use) \
++	byte = ((byte) & 0xf8) | ((use) & 0x7)
++#define WDOG_GET_TIMEOUT_ACT(byte) ((byte) & 0x7)
++#define WDOG_TIMEOUT_NONE		0
++#define WDOG_TIMEOUT_RESET		1
++#define WDOG_TIMEOUT_POWER_DOWN		2
++#define WDOG_TIMEOUT_POWER_CYCLE	3
++
++/* Byte 3 of the get command, byte 4 of the get response is the
++   pre-timeout in seconds. */
++
++/* Bits for setting byte 4 of the set command, byte 5 of the get response. */
++#define WDOG_EXPIRE_CLEAR_BIOS_FRB2	(1 << 1)
++#define WDOG_EXPIRE_CLEAR_BIOS_POST	(1 << 2)
++#define WDOG_EXPIRE_CLEAR_OS_LOAD	(1 << 3)
++#define WDOG_EXPIRE_CLEAR_SMS_OS	(1 << 4)
++#define WDOG_EXPIRE_CLEAR_OEM		(1 << 5)
++
++/* Setting/getting the watchdog timer value.  This is for bytes 5 and
++   6 (the timeout time) of the set command, and bytes 6 and 7 (the
++   timeout time) and 8 and 9 (the current countdown value) of the
++   response.  The timeout value is given in seconds (in the command it
++   is 100ms intervals). */
++#define WDOG_SET_TIMEOUT(byte1, byte2, val) \
++	(byte1) = (((val) * 10) & 0xff), (byte2) = (((val) * 10) >> 8)
++#define WDOG_GET_TIMEOUT(byte1, byte2) \
++	(((byte1) | ((byte2) << 8)) / 10)
++
++#define IPMI_WDOG_RESET_TIMER		0x22
++#define IPMI_WDOG_SET_TIMER		0x24
++#define IPMI_WDOG_GET_TIMER		0x25
++
++/* These are here until the real ones get into the watchdog.h interface. */
++#ifndef WDIOC_GETTIMEOUT
++#define	WDIOC_GETTIMEOUT        _IOW(WATCHDOG_IOCTL_BASE, 20, int)
++#endif
++#ifndef WDIOC_SET_PRETIMEOUT
++#define	WDIOC_SET_PRETIMEOUT     _IOW(WATCHDOG_IOCTL_BASE, 21, int)
++#endif
++#ifndef WDIOC_GET_PRETIMEOUT
++#define	WDIOC_GET_PRETIMEOUT     _IOW(WATCHDOG_IOCTL_BASE, 22, int)
++#endif
++
++static ipmi_user_t watchdog_user = NULL;
++
++/* Default the timeout to 10 seconds. */
++static int timeout = 10;
++
++/* The pre-timeout is disabled by default. */
++static int pretimeout = 0;
++
++/* Default action is to reset the board on a timeout. */
++static unsigned char action_val = WDOG_TIMEOUT_RESET;
++
++static char *action = "reset";
++
++static unsigned char preaction_val = WDOG_PRETIMEOUT_NONE;
++
++static char *preaction = "pre_none";
++
++static unsigned char preop_val = WDOG_PREOP_NONE;
++
++static char *preop = "preop_none";
++static spinlock_t ipmi_read_lock = SPIN_LOCK_UNLOCKED;
++static char data_to_read = 0;
++static DECLARE_WAIT_QUEUE_HEAD(read_q);
++static struct fasync_struct *fasync_q = NULL;
++static char pretimeout_since_last_heartbeat = 0;
++
++MODULE_PARM(timeout, "i");
++MODULE_PARM(pretimeout, "i");
++MODULE_PARM(action, "s");
++MODULE_PARM(preaction, "s");
++MODULE_PARM(preop, "s");
++
++/* Default state of the timer. */
++static unsigned char ipmi_watchdog_state = WDOG_TIMEOUT_NONE;
++
++/* If shutting down via IPMI, we ignore the heartbeat. */
++static int ipmi_ignore_heartbeat = 0;
++
++/* Is someone using the watchdog?  Only one user is allowed. */
++static int ipmi_wdog_open = 0;
++
++/* If true, the driver will start running as soon as it is configured
++   and ready. */
++static int start_now = 0;
++
++/* If set to 1, the heartbeat command will set the state to reset and
++   start the timer.  The timer doesn't normally run when the driver is
++   first opened until the heartbeat is set the first time, this
++   variable is used to accomplish this. */
++static int ipmi_start_timer_on_heartbeat = 0;
++
++/* IPMI version of the BMC. */
++static unsigned char ipmi_version_major;
++static unsigned char ipmi_version_minor;
++
++
++static int ipmi_heartbeat(void);
++static void panic_halt_ipmi_heartbeat(void);
++
++
++/* We use a semaphore to make sure that only one thing can send a set
++   timeout at one time, because we only have one copy of the data.
++   The semaphore is claimed when the set_timeout is sent and freed
++   when both messages are free. */
++static atomic_t set_timeout_tofree = ATOMIC_INIT(0);
++static DECLARE_MUTEX(set_timeout_lock);
++static void set_timeout_free_smi(struct ipmi_smi_msg *msg)
++{
++    if (atomic_dec_and_test(&set_timeout_tofree))
++	    up(&set_timeout_lock);
++}
++static void set_timeout_free_recv(struct ipmi_recv_msg *msg)
++{
++    if (atomic_dec_and_test(&set_timeout_tofree))
++	    up(&set_timeout_lock);
++}
++static struct ipmi_smi_msg set_timeout_smi_msg =
++{
++	.done = set_timeout_free_smi
++};
++static struct ipmi_recv_msg set_timeout_recv_msg =
++{
++	.done = set_timeout_free_recv
++};
++ 
++static int i_ipmi_set_timeout(struct ipmi_smi_msg  *smi_msg,
++			      struct ipmi_recv_msg *recv_msg,
++			      int                  *send_heartbeat_now)
++{
++	struct ipmi_msg    msg;
++	unsigned char      data[6];
++	int                rv;
++	struct ipmi_system_interface_addr addr;
++
++
++	*send_heartbeat_now = 0;
++	data[0] = 0;
++	WDOG_SET_TIMER_USE(data[0], WDOG_TIMER_USE_SMS_OS);
++
++	if ((ipmi_version_major > 1)
++	    || ((ipmi_version_major == 1) && (ipmi_version_minor >= 5)))
++	{
++		/* This is an IPMI 1.5-only feature. */
++		data[0] |= WDOG_DONT_STOP_ON_SET;
++	} else if (ipmi_watchdog_state != WDOG_TIMEOUT_NONE) {
++		/* In ipmi 1.0, setting the timer stops the watchdog, we
++		   need to start it back up again. */
++		*send_heartbeat_now = 1;
++	}
++
++	data[1] = 0;
++	WDOG_SET_TIMEOUT_ACT(data[1], ipmi_watchdog_state);
++	if (pretimeout > 0) {
++	    WDOG_SET_PRETIMEOUT_ACT(data[1], preaction_val);
++	    data[2] = pretimeout;
++	} else {
++	    WDOG_SET_PRETIMEOUT_ACT(data[1], WDOG_PRETIMEOUT_NONE);
++	    data[2] = 0; /* No pretimeout. */
++	}
++	data[3] = 0;
++	WDOG_SET_TIMEOUT(data[4], data[5], timeout);
++
++	addr.addr_type = IPMI_SYSTEM_INTERFACE_ADDR_TYPE;
++	addr.channel = IPMI_BMC_CHANNEL;
++	addr.lun = 0;
++
++	msg.netfn = 0x06;
++	msg.cmd = IPMI_WDOG_SET_TIMER;
++	msg.data = data;
++	msg.data_len = sizeof(data);
++	rv = ipmi_request_supply_msgs(watchdog_user,
++				      (struct ipmi_addr *) &addr,
++				      0,
++				      &msg,
++				      smi_msg,
++				      recv_msg,
++				      1);
++	if (rv) {
++		printk(KERN_WARNING "IPMI Watchdog, set timeout error: %d\n",
++		       rv);
++	}
++
++	return rv;
++}
++
++static int ipmi_set_timeout(void)
++{
++	int send_heartbeat_now;
++	int rv;
++
++
++	/* We can only send one of these at a time. */
++	down(&set_timeout_lock);
++
++	atomic_set(&set_timeout_tofree, 2);
++
++	rv = i_ipmi_set_timeout(&set_timeout_smi_msg,
++				&set_timeout_recv_msg,
++				&send_heartbeat_now);
++	if (rv) {
++		up(&set_timeout_lock);
++	} else {
++		if (send_heartbeat_now)
++			rv = ipmi_heartbeat();
++	}
++
++	return rv;
++}
++
++static void dummy_smi_free(struct ipmi_smi_msg *msg)
++{
++}
++static void dummy_recv_free(struct ipmi_recv_msg *msg)
++{
++}
++static struct ipmi_smi_msg panic_halt_smi_msg =
++{
++	.done = dummy_smi_free
++};
++static struct ipmi_recv_msg panic_halt_recv_msg =
++{
++	.done = dummy_recv_free
++};
++
++/* Special call, doesn't claim any locks.  This is only to be called
++   at panic or halt time, in run-to-completion mode, when the caller
++   is the only CPU and the only thing that will be going IPMI
++   calls. */
++static void panic_halt_ipmi_set_timeout(void)
++{
++	int send_heartbeat_now;
++	int rv;
++
++	rv = i_ipmi_set_timeout(&panic_halt_smi_msg,
++				&panic_halt_recv_msg,
++				&send_heartbeat_now);
++	if (!rv) {
++		if (send_heartbeat_now)
++			panic_halt_ipmi_heartbeat();
++	}
++}
++
++/* Do a delayed shutdown, with the delay in milliseconds.  If power_off is
++   false, do a reset.  If power_off is true, do a power down.  This is
++   primarily for the IMB code's shutdown. */
++void ipmi_delayed_shutdown(long delay, int power_off)
++{
++	ipmi_ignore_heartbeat = 1;
++	if (power_off) 
++		ipmi_watchdog_state = WDOG_TIMEOUT_POWER_DOWN;
++	else
++		ipmi_watchdog_state = WDOG_TIMEOUT_RESET;
++	timeout = delay;
++	ipmi_set_timeout();
++}
++
++/* We use a semaphore to make sure that only one thing can send a
++   heartbeat at one time, because we only have one copy of the data.
++   The semaphore is claimed when the set_timeout is sent and freed
++   when both messages are free. */
++static atomic_t heartbeat_tofree = ATOMIC_INIT(0);
++static DECLARE_MUTEX(heartbeat_lock);
++static DECLARE_MUTEX_LOCKED(heartbeat_wait_lock);
++static void heartbeat_free_smi(struct ipmi_smi_msg *msg)
++{
++    if (atomic_dec_and_test(&heartbeat_tofree))
++	    up(&heartbeat_wait_lock);
++}
++static void heartbeat_free_recv(struct ipmi_recv_msg *msg)
++{
++    if (atomic_dec_and_test(&heartbeat_tofree))
++	    up(&heartbeat_wait_lock);
++}
++static struct ipmi_smi_msg heartbeat_smi_msg =
++{
++	.done = heartbeat_free_smi
++};
++static struct ipmi_recv_msg heartbeat_recv_msg =
++{
++	.done = heartbeat_free_recv
++};
++ 
++static struct ipmi_smi_msg panic_halt_heartbeat_smi_msg =
++{
++	.done = dummy_smi_free
++};
++static struct ipmi_recv_msg panic_halt_heartbeat_recv_msg =
++{
++	.done = dummy_recv_free
++};
++ 
++static int ipmi_heartbeat(void)
++{
++	struct ipmi_msg                   msg;
++	int                               rv;
++	struct ipmi_system_interface_addr addr;
++
++	if (ipmi_ignore_heartbeat) {
++		return 0;
++	}
++
++	if (ipmi_start_timer_on_heartbeat) {
++		ipmi_start_timer_on_heartbeat = 0;
++		ipmi_watchdog_state = action_val;
++		return ipmi_set_timeout();
++	}
++
++	if (pretimeout_since_last_heartbeat) {
++		/* A pretimeout occurred, make sure we set the timeout.
++		   We don't want to set the action, though, we want to
++		   leave that alone (thus it can't be combined with the
++		   above operation. */
++		pretimeout_since_last_heartbeat = 0;
++		return ipmi_set_timeout();
++	}
++
++	down(&heartbeat_lock);
++
++	atomic_set(&heartbeat_tofree, 2);
++
++	/* Don't reset the timer if we have the timer turned off, that
++           re-enables the watchdog. */
++	if (ipmi_watchdog_state == WDOG_TIMEOUT_NONE) {
++		up(&heartbeat_lock);
++		return 0;
++	}
++
++	addr.addr_type = IPMI_SYSTEM_INTERFACE_ADDR_TYPE;
++	addr.channel = IPMI_BMC_CHANNEL;
++	addr.lun = 0;
++
++	msg.netfn = 0x06;
++	msg.cmd = IPMI_WDOG_RESET_TIMER;
++	msg.data = NULL;
++	msg.data_len = 0;
++	rv = ipmi_request_supply_msgs(watchdog_user,
++				      (struct ipmi_addr *) &addr,
++				      0,
++				      &msg,
++				      &heartbeat_smi_msg,
++				      &heartbeat_recv_msg,
++				      1);
++	if (rv) {
++		up(&heartbeat_lock);
++		printk(KERN_WARNING "IPMI Watchdog, heartbeat failure: %d\n",
++		       rv);
++		return rv;
++	}
++
++	/* Wait for the heartbeat to be sent. */
++	down(&heartbeat_wait_lock);
++
++	if (heartbeat_recv_msg.msg.data[0] != 0) {
++	    /* Got an error in the heartbeat response.  It was already
++	       reported in ipmi_wdog_msg_handler, but we should return
++	       an error here. */
++	    rv = -EINVAL;
++	}
++
++	up(&heartbeat_lock);
++
++	return rv;
++}
++
++static void panic_halt_ipmi_heartbeat(void)
++{
++	struct ipmi_msg                   msg;
++	struct ipmi_system_interface_addr addr;
++
++
++	/* Don't reset the timer if we have the timer turned off, that
++           re-enables the watchdog. */
++	if (ipmi_watchdog_state == WDOG_TIMEOUT_NONE)
++		return;
++
++	addr.addr_type = IPMI_SYSTEM_INTERFACE_ADDR_TYPE;
++	addr.channel = IPMI_BMC_CHANNEL;
++	addr.lun = 0;
++
++	msg.netfn = 0x06;
++	msg.cmd = IPMI_WDOG_RESET_TIMER;
++	msg.data = NULL;
++	msg.data_len = 0;
++	ipmi_request_supply_msgs(watchdog_user,
++				 (struct ipmi_addr *) &addr,
++				 0,
++				 &msg,
++				 &panic_halt_heartbeat_smi_msg,
++				 &panic_halt_heartbeat_recv_msg,
++				 1);
++}
++
++static struct watchdog_info ident=
++{
++	0, /* WDIOF_SETTIMEOUT, */
++	1,
++	"IPMI"
++};
++
++static int ipmi_ioctl(struct inode *inode, struct file *file,
++		      unsigned int cmd, unsigned long arg)
++{
++	int i;
++	int val;
++
++	switch(cmd) {
++	case WDIOC_GETSUPPORT:
++		i = copy_to_user((void*)arg, &ident, sizeof(ident));
++		return i ? -EFAULT : 0;
++
++	case WDIOC_SETTIMEOUT:
++		i = copy_from_user(&val, (void *) arg, sizeof(int));
++		if (i)
++			return -EFAULT;
++		timeout = val;
++		return ipmi_set_timeout();
++
++	case WDIOC_GETTIMEOUT:
++		i = copy_to_user((void *) arg,
++				 &timeout,
++				 sizeof(timeout));
++		if (i)
++			return -EFAULT;
++		return 0;
++
++	case WDIOC_SET_PRETIMEOUT:
++		i = copy_from_user(&val, (void *) arg, sizeof(int));
++		if (i)
++			return -EFAULT;
++		pretimeout = val;
++		return ipmi_set_timeout();
++
++	case WDIOC_GET_PRETIMEOUT:
++		i = copy_to_user((void *) arg,
++				 &pretimeout,
++				 sizeof(pretimeout));
++		if (i)
++			return -EFAULT;
++		return 0;
++
++	case WDIOC_KEEPALIVE:
++		return ipmi_heartbeat();
++
++	case WDIOC_SETOPTIONS:
++		i = copy_from_user(&val, (void *) arg, sizeof(int));
++		if (i)
++			return -EFAULT;
++		if (val & WDIOS_DISABLECARD)
++		{
++			ipmi_watchdog_state = WDOG_TIMEOUT_NONE;
++			ipmi_set_timeout();
++			ipmi_start_timer_on_heartbeat = 0;
++		}
++
++		if (val & WDIOS_ENABLECARD)
++		{
++			ipmi_watchdog_state = action_val;
++			ipmi_set_timeout();
++		}
++		return 0;
++
++	case WDIOC_GETSTATUS:
++		val = 0;
++		return copy_to_user((void *) arg, &val, sizeof(val));
++
++	default:
++		return -ENOIOCTLCMD;
++	}
++}
++
++static ssize_t ipmi_write(struct file *file,
++			  const char  *buf,
++			  size_t      len,
++			  loff_t      *ppos)
++{
++	int rv;
++
++	/*  Can't seek (pwrite) on this device  */
++	if (ppos != &file->f_pos)
++		return -ESPIPE;
++
++	if (len) {
++		rv = ipmi_heartbeat();
++		if (rv)
++			return rv;
++		return 1;
++	}
++	return 0;
++}
++
++static ssize_t ipmi_read(struct file *file,
++			 char        *buf,
++			 size_t      count,
++			 loff_t      *ppos)
++{
++	int          rv = 0;
++	wait_queue_t wait;
++
++	/*  Can't seek (pread) on this device  */
++	if (ppos != &file->f_pos)
++		return -ESPIPE;
++
++	if (count <= 0)
++		return 0;
++
++	/* Reading returns if the pretimeout has gone off, and it only does
++	   it once per pretimeout. */
++	spin_lock(&ipmi_read_lock);
++	if (!data_to_read) {
++		if (file->f_flags & O_NONBLOCK) {
++			rv = -EAGAIN;
++			goto out;
++		}
++		
++		init_waitqueue_entry(&wait, current);
++		add_wait_queue(&read_q, &wait);
++		while (!data_to_read) {
++			set_current_state(TASK_INTERRUPTIBLE);
++			spin_unlock(&ipmi_read_lock);
++			schedule();
++			spin_lock(&ipmi_read_lock);
++		}
++		remove_wait_queue(&read_q, &wait);
++	    
++		if (signal_pending(current)) {
++			rv = -ERESTARTSYS;
++			goto out;
++		}
++	}
++	data_to_read = 0;
++
++ out:
++	spin_unlock(&ipmi_read_lock);
++
++	if (rv == 0) {
++		if (copy_to_user(buf, &data_to_read, 1))
++			rv = -EFAULT;
++		else
++			rv = 1;
++	}
++
++	return rv;
++}
++
++static int ipmi_open(struct inode *ino, struct file *filep)
++{
++        switch (minor(ino->i_rdev))
++        {
++                case WATCHDOG_MINOR:
++                    if (ipmi_wdog_open)
++                        return -EBUSY;
++
++                    ipmi_wdog_open = 1;
++
++		    /* Don't start the timer now, let it start on the
++		       first heartbeat. */
++		    ipmi_start_timer_on_heartbeat = 1;
++                    return(0);
++
++                default:
++                    return (-ENODEV);
++        }
++}
++
++static unsigned int ipmi_poll(struct file *file, poll_table *wait)
++{
++	unsigned int mask = 0;
++	
++	poll_wait(file, &read_q, wait);
++
++	spin_lock(&ipmi_read_lock);
++	if (data_to_read)
++		mask |= (POLLIN | POLLRDNORM);
++	spin_unlock(&ipmi_read_lock);
++
++	return mask;
++}
++
++static int ipmi_fasync(int fd, struct file *file, int on)
++{
++	int result;
++
++	result = fasync_helper(fd, file, on, &fasync_q);
++
++	return (result);
++}
++
++static int ipmi_close(struct inode *ino, struct file *filep)
++{
++	if (minor(ino->i_rdev)==WATCHDOG_MINOR)
++	{
++#ifndef CONFIG_WATCHDOG_NOWAYOUT	
++		ipmi_watchdog_state = WDOG_TIMEOUT_NONE;
++		ipmi_set_timeout();
++#endif		
++	        ipmi_wdog_open = 0;
++	}
++
++	ipmi_fasync (-1, filep, 0);
++
++	return 0;
++}
++
++static struct file_operations ipmi_wdog_fops = {
++	.owner   = THIS_MODULE,
++	.read    = ipmi_read,
++	.poll    = ipmi_poll,
++	.write   = ipmi_write,
++	.ioctl   = ipmi_ioctl,
++	.open    = ipmi_open,
++	.release = ipmi_close,
++	.fasync  = ipmi_fasync,
++};
++
++static struct miscdevice ipmi_wdog_miscdev = {
++	WATCHDOG_MINOR,
++	"watchdog",
++	&ipmi_wdog_fops
++};
++
++static DECLARE_RWSEM(register_sem);
++
++static void ipmi_wdog_msg_handler(struct ipmi_recv_msg *msg,
++				  void                 *handler_data)
++{
++	if (msg->msg.data[0] != 0) {
++		printk(KERN_ERR "IPMI Watchdog response: Error %x on cmd %x\n",
++		       msg->msg.data[0],
++		       msg->msg.cmd);
++	}
++	
++	ipmi_free_recv_msg(msg);
++}
++
++static void ipmi_wdog_pretimeout_handler(void *handler_data)
++{
++	if (preaction_val != WDOG_PRETIMEOUT_NONE) {
++		if (preop_val == WDOG_PREOP_PANIC)
++			panic("Watchdog pre-timeout");
++		else if (preop_val == WDOG_PREOP_GIVE_DATA) {
++			spin_lock(&ipmi_read_lock);
++			data_to_read = 1;
++			wake_up_interruptible(&read_q);
++			kill_fasync(&fasync_q, SIGIO, POLL_IN);
++
++			/* On some machines, the heartbeat will give
++			   an error and not work unless we re-enable
++			   the timer.   So do so. */
++			pretimeout_since_last_heartbeat = 1;
++
++			spin_unlock(&ipmi_read_lock);
++		}
++	}
++}
++
++static struct ipmi_user_hndl ipmi_hndlrs =
++{
++	.ipmi_recv_hndl           = ipmi_wdog_msg_handler,
++	.ipmi_watchdog_pretimeout = ipmi_wdog_pretimeout_handler
++};
++
++static void ipmi_register_watchdog(int ipmi_intf)
++{
++	int rv = -EBUSY;
++
++	down_read(&register_sem);
++	if (watchdog_user)
++		goto out;
++
++	rv = ipmi_create_user(ipmi_intf, &ipmi_hndlrs, NULL, &watchdog_user);
++	if (rv < 0) {
++		printk("IPMI watchdog: Unable to register with ipmi\n");
++		goto out;
++	}
++
++	ipmi_get_version(watchdog_user,
++			 &ipmi_version_major,
++			 &ipmi_version_minor);
++
++	rv = misc_register(&ipmi_wdog_miscdev);
++	if (rv < 0) {
++		ipmi_destroy_user(watchdog_user);
++		watchdog_user = NULL;
++		printk("IPMI watchdog: Unable to register misc device\n");
++	}
++
++ out:
++	up_write(&register_sem);
++
++	if ((start_now) && (rv == 0)) {
++		/* Run from startup, so start the timer now. */
++		start_now = 0; /* Disable this function after first startup. */
++		ipmi_watchdog_state = action_val;
++		ipmi_set_timeout();
++		printk("Starting IPMI Watchdog now!\n");
++	}
++}
++
++#ifdef HAVE_NMI_HANDLER
++static int
++ipmi_nmi(void *dev_id, struct pt_regs *regs, int cpu, int handled)
++{
++	/* If no one else handled the NMI, we assume it was the IPMI
++           watchdog. */
++	if ((!handled) && (preop_val == WDOG_PREOP_PANIC))
++		panic("IPMI watchdog pre-timeout");
++	return NOTIFY_DONE;
++}
++
++static struct nmi_handler ipmi_nmi_handler =
++{
++	.dev_name = "ipmi_watchdog",
++	.dev_id   = NULL,
++	.handler  = ipmi_nmi,
++	.priority = 0, /* Call us last. */
++};
++#endif
++
++static int wdog_reboot_handler(struct notifier_block *this,
++			       unsigned long         code,
++			       void                  *unused)
++{
++	static int reboot_event_handled = 0;
++
++	if ((watchdog_user) && (!reboot_event_handled)) {
++		/* Make sure we only do this once. */
++		reboot_event_handled = 1;
++
++		if (code == SYS_DOWN || code == SYS_HALT) {
++			/* Disable the WDT if we are shutting down. */
++			ipmi_watchdog_state = WDOG_TIMEOUT_NONE;
++			panic_halt_ipmi_set_timeout();
++		} else {
++			/* Set a long timer to let the reboot happens, but
++			   reboot if it hangs. */
++			timeout = 120;
++			pretimeout = 0;
++			ipmi_watchdog_state = WDOG_TIMEOUT_RESET;
++			panic_halt_ipmi_set_timeout();
++		}
++	}
++	return NOTIFY_OK;
++}
++
++static struct notifier_block wdog_reboot_notifier = {
++	wdog_reboot_handler,
++	NULL,
++	0
++};
++
++extern int panic_timeout; /* Why isn't this defined anywhere? */
++
++static int wdog_panic_handler(struct notifier_block *this,
++			      unsigned long         event,
++			      void                  *unused)
++{
++	static int panic_event_handled = 0;
++
++	/* On a panic, if we have a panic timeout, make sure that the thing
++	   reboots, even if it hangs during that panic. */
++	if (watchdog_user && !panic_event_handled && (panic_timeout > 0)) {
++		/* Make sure the panic doesn't hang, and make sure we
++		   do this only once. */
++		panic_event_handled = 1;
++	    
++		timeout = panic_timeout + 120;
++		if (timeout > 255)
++			timeout = 255;
++		pretimeout = 0;
++		ipmi_watchdog_state = WDOG_TIMEOUT_RESET;
++		panic_halt_ipmi_set_timeout();
++	}
++
++	return NOTIFY_OK;
++}
++
++static struct notifier_block wdog_panic_notifier = {
++	wdog_panic_handler,
++	NULL,
++	150   /* priority: INT_MAX >= x >= 0 */
++};
++
++
++static void ipmi_new_smi(int if_num)
++{
++	ipmi_register_watchdog(if_num);
++}
++
++static void ipmi_smi_gone(int if_num)
++{
++	/* This can never be called, because once the watchdog is
++	   registered, the interface can't go away until the watchdog
++	   is unregistered. */
++}
++
++static struct ipmi_smi_watcher smi_watcher =
++{
++	.new_smi  = ipmi_new_smi,
++	.smi_gone = ipmi_smi_gone
++};
++
++static int __init ipmi_wdog_init(void)
++{
++	int rv;
++
++	if (strcmp(action, "reset") == 0) {
++		action_val = WDOG_TIMEOUT_RESET;
++	} else if (strcmp(action, "none") == 0) {
++		action_val = WDOG_TIMEOUT_NONE;
++	} else if (strcmp(action, "power_cycle") == 0) {
++		action_val = WDOG_TIMEOUT_POWER_CYCLE;
++	} else if (strcmp(action, "power_off") == 0) {
++		action_val = WDOG_TIMEOUT_POWER_DOWN;
++	} else {
++		action_val = WDOG_TIMEOUT_RESET;
++		printk("ipmi_watchdog: Unknown action '%s', defaulting to"
++		       " reset\n", action);
++	}
++
++	if (strcmp(preaction, "pre_none") == 0) {
++		preaction_val = WDOG_PRETIMEOUT_NONE;
++	} else if (strcmp(preaction, "pre_smi") == 0) {
++		preaction_val = WDOG_PRETIMEOUT_SMI;
++#ifdef HAVE_NMI_HANDLER
++	} else if (strcmp(preaction, "pre_nmi") == 0) {
++		preaction_val = WDOG_PRETIMEOUT_NMI;
++#endif
++	} else if (strcmp(preaction, "pre_int") == 0) {
++		preaction_val = WDOG_PRETIMEOUT_MSG_INT;
++	} else {
++		action_val = WDOG_PRETIMEOUT_NONE;
++		printk("ipmi_watchdog: Unknown preaction '%s', defaulting to"
++		       " none\n", preaction);
++	}
++
++	if (strcmp(preop, "preop_none") == 0) {
++		preop_val = WDOG_PREOP_NONE;
++	} else if (strcmp(preop, "preop_panic") == 0) {
++		preop_val = WDOG_PREOP_PANIC;
++	} else if (strcmp(preop, "preop_give_data") == 0) {
++		preop_val = WDOG_PREOP_GIVE_DATA;
++	} else {
++		action_val = WDOG_PREOP_NONE;
++		printk("ipmi_watchdog: Unknown preop '%s', defaulting to"
++		       " none\n", preop);
++	}
++
++#ifdef HAVE_NMI_HANDLER
++	if (preaction_val == WDOG_PRETIMEOUT_NMI) {
++		if (preop_val == WDOG_PREOP_GIVE_DATA) {
++			printk(KERN_WARNING
++			       "ipmi_watchdog: Pretimeout op is to give data"
++			       " but NMI pretimeout is enabled, setting"
++			       " pretimeout op to none\n");
++			preop_val = WDOG_PREOP_NONE;
++		}
++#ifdef CONFIG_X86_LOCAL_APIC
++		if (nmi_watchdog == NMI_IO_APIC) {
++			printk(KERN_WARNING
++			       "ipmi_watchdog: nmi_watchdog is set to IO APIC"
++			       " mode (value is %d), that is incompatible"
++			       " with using NMI in the IPMI watchdog."
++			       " Disabling IPMI nmi pretimeout.\n",
++			       nmi_watchdog);
++			preaction_val = WDOG_PRETIMEOUT_NONE;
++		} else {
++#endif
++		rv = request_nmi(&ipmi_nmi_handler);
++		if (rv) {
++			printk(KERN_WARNING
++			       "ipmi_watchdog: Can't register nmi handler\n");
++			return rv;
++		}
++#ifdef CONFIG_X86_LOCAL_APIC
++		}
++#endif
++	}
++#endif
++
++	rv = ipmi_smi_watcher_register(&smi_watcher);
++	if (rv) {
++#ifdef HAVE_NMI_HANDLER
++		if (preaction_val == WDOG_PRETIMEOUT_NMI)
++			release_nmi(&ipmi_nmi_handler);
++#endif
++		printk(KERN_WARNING
++		       "ipmi_watchdog: can't register smi watcher\n");
++		return rv;
++	}
++
++	register_reboot_notifier(&wdog_reboot_notifier);
++	notifier_chain_register(&panic_notifier_list, &wdog_panic_notifier);
++
++	printk(KERN_INFO "IPMI watchdog by "
++	       "Corey Minyard (minyard@mvista.com)\n");
++
++	return 0;
++}
++
++#ifdef MODULE
++static void ipmi_unregister_watchdog(void)
++{
++	int rv;
++
++	down_write(&register_sem);
++
++#ifdef HAVE_NMI_HANDLER
++	if (preaction_val == WDOG_PRETIMEOUT_NMI)
++		release_nmi(&ipmi_nmi_handler);
++#endif
++
++	notifier_chain_unregister(&panic_notifier_list, &wdog_panic_notifier);
++	unregister_reboot_notifier(&wdog_reboot_notifier);
++
++	if (! watchdog_user)
++		goto out;
++
++	/* Make sure no one can call us any more. */
++	misc_deregister(&ipmi_wdog_miscdev);
++
++	/*  Disable the timer. */
++	ipmi_watchdog_state = WDOG_TIMEOUT_NONE;
++	ipmi_set_timeout();
++
++	/* Wait to make sure the message makes it out.  The lower layer has
++	   pointers to our buffers, we want to make sure they are done before
++	   we release our memory. */
++	while (atomic_read(&set_timeout_tofree)) {
++		schedule_timeout(1);
++	}
++
++	/* Disconnect from IPMI. */
++	rv = ipmi_destroy_user(watchdog_user);
++	if (rv) {
++		printk(KERN_WARNING
++		       "IPMI Watchdog, error unlinking from IPMI: %d\n",
++		       rv);
++	}
++	watchdog_user = NULL;
++
++ out:
++	up_write(&register_sem);
++}
++
++static void __exit ipmi_wdog_exit(void)
++{
++	ipmi_smi_watcher_unregister(&smi_watcher);
++	ipmi_unregister_watchdog();
++}
++module_exit(ipmi_wdog_exit);
++#else
++static int __init ipmi_wdog_setup(char *str)
++{
++	int  val;
++	int  rv;
++	char *option;
++
++	rv = get_option(&str, &val);
++	if (rv == 0)
++		return 1;
++	if (val > 0)
++		timeout = val;
++	if (rv == 1)
++		return 1;
++
++	rv = get_option(&str, &val);
++	if (rv == 0)
++		return 1;
++	if (val >= 0)
++		pretimeout = val;
++	if (rv == 1)
++		return 1;
++
++	while ((option = strsep(&str, ",")) != NULL) {
++		if (strcmp(option, "reset") == 0) {
++			action = "reset";
++		}
++		else if (strcmp(option, "none") == 0) {
++			action = "none";
++		}
++		else if (strcmp(option, "power_cycle") == 0) {
++			action = "power_cycle";
++		}
++		else if (strcmp(option, "power_off") == 0) {
++			action = "power_off";
++		}
++		else if (strcmp(option, "pre_none") == 0) {
++			preaction = "pre_none";
++		}
++		else if (strcmp(option, "pre_smi") == 0) {
++			preaction = "pre_smi";
++		}
++#ifdef HAVE_NMI_HANDLER
++		else if (strcmp(option, "pre_nmi") == 0) {
++			preaction = "pre_nmi";
++		}
++#endif
++		else if (strcmp(option, "pre_int") == 0) {
++			preaction = "pre_int";
++		}
++		else if (strcmp(option, "start_now") == 0) {
++			start_now = 1;
++		}
++		else if (strcmp(option, "preop_none") == 0) {
++			preop = "preop_none";
++		}
++		else if (strcmp(option, "preop_panic") == 0) {
++			preop = "preop_panic";
++		}
++		else if (strcmp(option, "preop_none") == 0) {
++			preop = "preop_give_data";
++		} else {
++		    printk("Unknown IPMI watchdog option: '%s'\n", option);
++		}
++	}
++
++	return 1;
++}
++__setup("ipmi_wdog=", ipmi_wdog_setup);
++#endif
++
++EXPORT_SYMBOL(ipmi_delayed_shutdown);
++
++module_init(ipmi_wdog_init);
++MODULE_LICENSE("GPL");
+--- /dev/null	2002-08-30 19:31:37.000000000 -0400
++++ linux-2.4.18-14/include/linux/ipmi.h	2003-03-27 15:26:22.000000000 -0500
+@@ -0,0 +1,516 @@
++/*
++ * ipmi.h
++ *
++ * MontaVista IPMI interface
++ *
++ * Author: MontaVista Software, Inc.
++ *         Corey Minyard <minyard@mvista.com>
++ *         source@mvista.com
++ *
++ * Copyright 2002 MontaVista Software Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License as published by the
++ *  Free Software Foundation; either version 2 of the License, or (at your
++ *  option) any later version.
++ *
++ *
++ *  THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
++ *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ *  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ *  OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ *  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ *  TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ *  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++#ifndef __LINUX_IPMI_H
++#define __LINUX_IPMI_H
++
++#include <linux/ipmi_msgdefs.h>
++
++/*
++ * This file describes an interface to an IPMI driver.  You have to
++ * have a fairly good understanding of IPMI to use this, so go read
++ * the specs first before actually trying to do anything.
++ *
++ * With that said, this driver provides a multi-user interface to the
++ * IPMI driver, and it allows multiple IPMI physical interfaces below
++ * the driver.  The physical interfaces bind as a lower layer on the
++ * driver.  They appear as interfaces to the application using this
++ * interface.
++ *
++ * Multi-user means that multiple applications may use the driver,
++ * send commands, receive responses, etc.  The driver keeps track of
++ * commands the user sends and tracks the responses.  The responses
++ * will go back to the application that send the command.  If the
++ * response doesn't come back in time, the driver will return a
++ * timeout error response to the application.  Asynchronous events
++ * from the BMC event queue will go to all users bound to the driver.
++ * The incoming event queue in the BMC will automatically be flushed
++ * if it becomes full and it is queried once a second to see if
++ * anything is in it.  Incoming commands to the driver will get
++ * delivered as commands.
++ *
++ * This driver provides two main interfaces: one for in-kernel
++ * applications and another for userland applications.  The
++ * capabilities are basically the same for both interface, although
++ * the interfaces are somewhat different.  The stuff in the
++ * #ifdef KERNEL below is the in-kernel interface.  The userland
++ * interface is defined later in the file.  */
++
++
++
++/*
++ * This is an overlay for all the address types, so it's easy to
++ * determine the actual address type.  This is kind of like addresses
++ * work for sockets.
++ */
++#define IPMI_MAX_ADDR_SIZE 32
++struct ipmi_addr
++{
++	 /* Try to take these from the "Channel Medium Type" table
++	    in section 6.5 of the IPMI 1.5 manual. */
++	int   addr_type;
++	short channel;
++	char  data[IPMI_MAX_ADDR_SIZE];
++};
++
++/*
++ * When the address is not used, the type will be set to this value.
++ * The channel is the BMC's channel number for the channel (usually
++ * 0), or IPMC_BMC_CHANNEL if communicating directly with the BMC.
++ */
++#define IPMI_SYSTEM_INTERFACE_ADDR_TYPE	0x0c
++struct ipmi_system_interface_addr
++{
++	int           addr_type;
++	short         channel;
++	unsigned char lun;
++};
++
++/* An IPMB Address. */
++#define IPMI_IPMB_ADDR_TYPE		0x01
++/* Used for broadcast get device id as described in section 17.9 of the
++   IPMI 1.5 manual. */ 
++#define IPMI_IPMB_BROADCAST_ADDR_TYPE	0x41
++struct ipmi_ipmb_addr
++{
++	int           addr_type;
++	short         channel;
++	unsigned char slave_addr;
++	unsigned char lun;
++};
++
++
++/*
++ * Channel for talking directly with the BMC.  When using this
++ * channel, This is for the system interface address type only.  FIXME
++ * - is this right, or should we use -1?
++ */
++#define IPMI_BMC_CHANNEL  0xf
++#define IPMI_NUM_CHANNELS 0x10
++
++
++/*
++ * A raw IPMI message without any addressing.  This covers both
++ * commands and responses.  The completion code is always the first
++ * byte of data in the response (as the spec shows the messages laid
++ * out).
++ */
++struct ipmi_msg
++{
++	unsigned char  netfn;
++	unsigned char  cmd;
++	unsigned short data_len;
++	unsigned char  *data;
++};
++
++/*
++ * Various defines that are useful for IPMI applications.
++ */
++#define IPMI_INVALID_CMD_COMPLETION_CODE	0xC1
++#define IPMI_TIMEOUT_COMPLETION_CODE		0xC3
++#define IPMI_UNKNOWN_ERR_COMPLETION_CODE	0xff
++
++
++/*
++ * Receive types for messages coming from the receive interface.  This
++ * is used for the receive in-kernel interface and in the receive
++ * IOCTL.
++ */
++#define IPMI_RESPONSE_RECV_TYPE		1 /* A response to a command */
++#define IPMI_ASYNC_EVENT_RECV_TYPE	2 /* Something from the event queue */
++#define IPMI_CMD_RECV_TYPE		3 /* A command from somewhere else */
++/* Note that async events and received commands do not have a completion
++   code as the first byte of the incoming data, unlike a response. */
++
++
++
++#ifdef __KERNEL__
++
++/*
++ * The in-kernel interface.
++ */
++#include <linux/list.h>
++
++/* Opaque type for a IPMI message user.  One of these is needed to
++   send and receive messages. */
++typedef struct ipmi_user *ipmi_user_t;
++
++/*
++ * Stuff coming from the recieve interface comes as one of these.
++ * They are allocated, the receiver must free them with
++ * ipmi_free_recv_msg() when done with the message.  The link is not
++ * used after the message is delivered, so the upper layer may use the
++ * link to build a linked list, if it likes.
++ */
++struct ipmi_recv_msg
++{
++	struct list_head link;
++
++	/* The type of message as defined in the "Receive Types"
++           defines above. */
++	int              recv_type;
++
++	ipmi_user_t      user;
++	struct ipmi_addr addr;
++	long             msgid;
++	struct ipmi_msg  msg;
++
++	/* Call this when done with the message.  It will presumably free
++	   the message and do any other necessary cleanup. */
++	void (*done)(struct ipmi_recv_msg *msg);
++
++	/* Place-holder for the data, don't make any assumptions about
++	   the size or existance of this, since it may change. */
++	unsigned char   msg_data[IPMI_MAX_MSG_LENGTH];
++};
++
++/* Allocate and free the receive message. */
++static inline void ipmi_free_recv_msg(struct ipmi_recv_msg *msg)
++{
++	msg->done(msg);
++}
++struct ipmi_recv_msg *ipmi_alloc_recv_msg(void);
++
++struct ipmi_user_hndl
++{
++        /* Routine type to call when a message needs to be routed to
++	   the upper layer.  This will be called with some locks held,
++	   the only IPMI routines that can be called are ipmi_request
++	   and the alloc/free operations. */
++	void (*ipmi_recv_hndl)(struct ipmi_recv_msg *msg,
++			       void                 *handler_data);
++
++	/* Called when the interface detects a watchdog pre-timeout.  If
++	   this is NULL, it will be ignored for the user. */
++	void (*ipmi_watchdog_pretimeout)(void *handler_data);
++};
++
++/* Create a new user of the IPMI layer on the given interface number. */
++int ipmi_create_user(unsigned int          if_num,
++		     struct ipmi_user_hndl *handler,
++		     void                  *handler_data,
++		     ipmi_user_t           *user);
++
++/* Destroy the given user of the IPMI layer. */
++int ipmi_destroy_user(ipmi_user_t user);
++
++/* Get the IPMI version of the BMC we are talking to. */
++void ipmi_get_version(ipmi_user_t   user,
++		      unsigned char *major,
++		      unsigned char *minor);
++
++/* Set and get the slave address and LUN that we will use for our
++   source messages.  Note that this affects the interface, not just
++   this user, so it will affect all users of this interface.  This is
++   so some initialization code can come in and do the OEM-specific
++   things it takes to determine your address (if not the BMC) and set
++   it for everyone else. */
++void ipmi_set_my_address(ipmi_user_t   user,
++			 unsigned char address);
++unsigned char ipmi_get_my_address(ipmi_user_t user);
++void ipmi_set_my_LUN(ipmi_user_t   user,
++		     unsigned char LUN);
++unsigned char ipmi_get_my_LUN(ipmi_user_t user);
++
++/*
++ * Send a command request from the given user.  The address is the
++ * proper address for the channel type.  If this is a command, then
++ * the message response comes back, the receive handler for this user
++ * will be called with the given msgid value in the recv msg.  If this
++ * is a response to a command, then the msgid will be used as the
++ * sequence number for the response (truncated if necessary), so when
++ * sending a response you should use the sequence number you received
++ * in the msgid field of the received command.  If the priority is >
++ * 0, the message will go into a high-priority queue and be sent
++ * first.  Otherwise, it goes into a normal-priority queue.
++ */
++int ipmi_request(ipmi_user_t      user,
++		 struct ipmi_addr *addr,
++		 long             msgid,
++		 struct ipmi_msg  *msg,
++		 int              priority);
++
++/*
++ * Like ipmi_request, but lets you specify the slave return address.
++ */
++int ipmi_request_with_source(ipmi_user_t      user,
++			     struct ipmi_addr *addr,
++			     long             msgid,
++			     struct ipmi_msg  *msg,
++			     int              priority,
++			     unsigned char    source_address,
++			     unsigned char    source_lun);
++
++/*
++ * Like ipmi_request, but with messages supplied.  This will not
++ * allocate any memory, and the messages may be statically allocated
++ * (just make sure to do the "done" handling on them).  Note that this
++ * is primarily for the watchdog timer, since it should be able to
++ * send messages even if no memory is available.  This is subject to
++ * change as the system changes, so don't use it unless you REALLY
++ * have to.
++ */
++int ipmi_request_supply_msgs(ipmi_user_t          user,
++			     struct ipmi_addr     *addr,
++			     long                 msgid,
++			     struct ipmi_msg      *msg,
++			     void                 *supplied_smi,
++			     struct ipmi_recv_msg *supplied_recv,
++			     int                  priority);
++
++/*
++ * When commands come in to the SMS, the user can register to receive
++ * them.  Only one user can be listening on a specific netfn/cmd pair
++ * at a time, you will get an EBUSY error if the command is already
++ * registered.  If a command is received that does not have a user
++ * registered, the driver will automatically return the proper
++ * error.
++ */
++int ipmi_register_for_cmd(ipmi_user_t   user,
++			  unsigned char netfn,
++			  unsigned char cmd);
++int ipmi_unregister_for_cmd(ipmi_user_t   user,
++			    unsigned char netfn,
++			    unsigned char cmd);
++
++/*
++ * When the user is created, it will not receive IPMI events by
++ * default.  The user must set this to TRUE to get incoming events.
++ * The first user that sets this to TRUE will receive all events that
++ * have been queued while no one was waiting for events.
++ */
++int ipmi_set_gets_events(ipmi_user_t user, int val);
++
++/*
++ * Register the given user to handle all received IPMI commands.  This
++ * will fail if anyone is registered as a command receiver or if
++ * another is already registered to receive all commands.  NOTE THAT
++ * THIS IS FOR EMULATION USERS ONLY, DO NOT USER THIS FOR NORMAL
++ * STUFF.
++ */
++int ipmi_register_all_cmd_rcvr(ipmi_user_t user);
++int ipmi_unregister_all_cmd_rcvr(ipmi_user_t user);
++
++
++/*
++ * Called when a new SMI is registered.  This will also be called on
++ * every existing interface when a new watcher is registered with
++ * ipmi_smi_watcher_register().
++ */
++struct ipmi_smi_watcher
++{
++	struct list_head link;
++
++	/* These two are called with read locks held for the interface
++	   the watcher list.  So you can add and remove users from the
++	   IPMI interface, send messages, etc., but you cannot add
++	   or remove SMI watchers or SMI interfaces. */
++	void (*new_smi)(int if_num);
++	void (*smi_gone)(int if_num);
++};
++
++int ipmi_smi_watcher_register(struct ipmi_smi_watcher *watcher);
++int ipmi_smi_watcher_unregister(struct ipmi_smi_watcher *watcher);
++
++/* The following are various helper functions for dealing with IPMI
++   addresses. */
++
++/* Return the maximum length of an IPMI address given it's type. */
++unsigned int ipmi_addr_length(int addr_type);
++
++/* Validate that the given IPMI address is valid. */
++int ipmi_validate_addr(struct ipmi_addr *addr, int len);
++
++/* Return 1 if the given addresses are equal, 0 if not. */
++int ipmi_addr_equal(struct ipmi_addr *addr1, struct ipmi_addr *addr2);
++
++#endif /* __KERNEL__ */
++
++
++/*
++ * The userland interface
++ */
++
++/*
++ * The userland interface for the IPMI driver is a standard character
++ * device, with each instance of an interface registered as a minor
++ * number under the major character device.
++ *
++ * The read and write calls do not work, to get messages in and out
++ * requires ioctl calls because of the complexity of the data.  select
++ * and poll do work, so you can wait for input using the file
++ * descriptor, you just can use read to get it.
++ *
++ * In general, you send a command down to the interface and receive
++ * responses back.  You can use the msgid value to correlate commands
++ * and responses, the driver will take care of figuring out which
++ * incoming messages are for which command and find the proper msgid
++ * value to report.  You will only receive reponses for commands you
++ * send.  Asynchronous events, however, go to all open users, so you
++ * must be ready to handle these (or ignore them if you don't care).
++ *
++ * The address type depends upon the channel type.  When talking
++ * directly to the BMC (IPMC_BMC_CHANNEL), the address is ignored
++ * (IPMI_UNUSED_ADDR_TYPE).  When talking to an IPMB channel, you must
++ * supply a valid IPMB address with the addr_type set properly.
++ *
++ * When talking to normal channels, the driver takes care of the
++ * details of formatting and sending messages on that channel.  You do
++ * not, for instance, have to format a send command, you just send
++ * whatever command you want to the channel, the driver will create
++ * the send command, automatically issue receive command and get even
++ * commands, and pass those up to the proper user.
++ */
++
++
++/* The magic IOCTL value for this interface. */
++#define IPMI_IOC_MAGIC 'i'
++
++
++/* Messages sent to the interface are this format. */
++struct ipmi_req
++{
++	unsigned char *addr; /* Address to send the message to. */
++	unsigned int  addr_len;
++
++	long    msgid; /* The sequence number for the message.  This
++			  exact value will be reported back in the
++			  response to this request if it is a command.
++			  If it is a response, this will be used as
++			  the sequence value for the response.  */
++
++	struct ipmi_msg msg;
++};
++/*
++ * Send a message to the interfaces.  error values are:
++ *   - EFAULT - an address supplied was invalid.
++ *   - EINVAL - The address supplied was not valid, or the command
++ *              was not allowed.
++ *   - EMSGSIZE - The message to was too large.
++ *   - ENOMEM - Buffers could not be allocated for the command.
++ */
++#define IPMICTL_SEND_COMMAND		_IOR(IPMI_IOC_MAGIC, 13,	\
++					     struct ipmi_req)
++
++/* Messages received from the interface are this format. */
++struct ipmi_recv
++{
++	int     recv_type; /* Is this a command, response or an
++			      asyncronous event. */
++
++	unsigned char *addr;    /* Address the message was from is put
++				   here.  The caller must supply the
++				   memory. */
++	unsigned int  addr_len; /* The size of the address buffer.
++				   The caller supplies the full buffer
++				   length, this value is updated to
++				   the actual message length when the
++				   message is received. */
++
++	long    msgid; /* The sequence number specified in the request
++			  if this is a response.  If this is a command,
++			  this will be the sequence number from the
++			  command. */
++
++	struct ipmi_msg msg; /* The data field must point to a buffer.
++				The data_size field must be set to the
++				size of the message buffer.  The
++				caller supplies the full buffer
++				length, this value is updated to the
++				actual message length when the message
++				is received. */
++};
++
++/*
++ * Receive a message.  error values:
++ *  - EAGAIN - no messages in the queue.
++ *  - EFAULT - an address supplied was invalid.
++ *  - EINVAL - The address supplied was not valid.
++ *  - EMSGSIZE - The message to was too large to fit into the message buffer,
++ *               the message will be left in the buffer. */
++#define IPMICTL_RECEIVE_MSG		_IOWR(IPMI_IOC_MAGIC, 12,	\
++					      struct ipmi_recv)
++
++/*
++ * Like RECEIVE_MSG, but if the message won't fit in the buffer, it
++ * will truncate the contents instead of leaving the data in the
++ * buffer.
++ */
++#define IPMICTL_RECEIVE_MSG_TRUNC	_IOWR(IPMI_IOC_MAGIC, 11,	\
++					      struct ipmi_recv)
++
++/* Register to get commands from other entities on this interface. */
++struct ipmi_cmdspec
++{
++	unsigned char netfn;
++	unsigned char cmd;
++};
++
++/* 
++ * Register to receive a specific command.  error values:
++ *   - EFAULT - an address supplied was invalid.
++ *   - EBUSY - The netfn/cmd supplied was already in use.
++ *   - ENOMEM - could not allocate memory for the entry.
++ */
++#define IPMICTL_REGISTER_FOR_CMD	_IOR(IPMI_IOC_MAGIC, 14,	\
++					     struct ipmi_cmdspec)
++/*
++ * Unregister a regsitered command.  error values:
++ *  - EFAULT - an address supplied was invalid.
++ *  - ENOENT - The netfn/cmd was not found registered for this user.
++ */
++#define IPMICTL_UNREGISTER_FOR_CMD	_IOR(IPMI_IOC_MAGIC, 15,	\
++					     struct ipmi_cmdspec)
++
++/* 
++ * Set whether this interface receives events.  Note that the first
++ * user registered for events will get all pending events for the
++ * interface.  error values:
++ *  - EFAULT - an address supplied was invalid.
++ */
++#define IPMICTL_SET_GETS_EVENTS_CMD	_IOR(IPMI_IOC_MAGIC, 16, int)
++
++/*
++ * Set and get the slave address and LUN that we will use for our
++ * source messages.  Note that this affects the interface, not just
++ * this user, so it will affect all users of this interface.  This is
++ * so some initialization code can come in and do the OEM-specific
++ * things it takes to determine your address (if not the BMC) and set
++ * it for everyone else.  You should probably leave the LUN alone.
++ */
++#define IPMICTL_SET_MY_ADDRESS_CMD	_IOR(IPMI_IOC_MAGIC, 17, unsigned int)
++#define IPMICTL_GET_MY_ADDRESS_CMD	_IOR(IPMI_IOC_MAGIC, 18, unsigned int)
++#define IPMICTL_SET_MY_LUN_CMD		_IOR(IPMI_IOC_MAGIC, 19, unsigned int)
++#define IPMICTL_GET_MY_LUN_CMD		_IOR(IPMI_IOC_MAGIC, 20, unsigned int)
++
++#endif /* __LINUX_IPMI_H */
+--- /dev/null	2002-08-30 19:31:37.000000000 -0400
++++ linux-2.4.18-14/include/linux/ipmi_msgdefs.h	2003-03-27 15:26:22.000000000 -0500
+@@ -0,0 +1,58 @@
++/*
++ * ipmi_smi.h
++ *
++ * MontaVista IPMI system management interface
++ *
++ * Author: MontaVista Software, Inc.
++ *         Corey Minyard <minyard@mvista.com>
++ *         source@mvista.com
++ *
++ * Copyright 2002 MontaVista Software Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License as published by the
++ *  Free Software Foundation; either version 2 of the License, or (at your
++ *  option) any later version.
++ *
++ *
++ *  THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
++ *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ *  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ *  OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ *  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ *  TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ *  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++#ifndef __LINUX_IPMI_MSGDEFS_H
++#define __LINUX_IPMI_MSGDEFS_H
++
++/* Various definitions for IPMI messages used by almost everything in
++   the IPMI stack. */
++
++#define IPMI_NETFN_APP_REQUEST	0x06
++#define IPMI_NETFN_APP_RESPONSE	0x07
++
++#define IPMI_BMC_SLAVE_ADDR	0x20
++
++#define IPMI_GET_DEVICE_ID_CMD		0x01
++
++#define IPMI_CLEAR_MSG_FLAGS_CMD	0x30
++#define IPMI_GET_MSG_FLAGS_CMD		0x31
++#define IPMI_SEND_MSG_CMD		0x34
++#define IPMI_GET_MSG_CMD		0x33
++
++#define IPMI_SET_BMC_GLOBAL_ENABLES_CMD	0x2e
++#define IPMI_GET_BMC_GLOBAL_ENABLES_CMD	0x2f
++#define IPMI_READ_EVENT_MSG_BUFFER_CMD	0x35
++
++#define IPMI_MAX_MSG_LENGTH	80
++
++#endif /* __LINUX_IPMI_MSGDEFS_H */
+--- /dev/null	2002-08-30 19:31:37.000000000 -0400
++++ linux-2.4.18-14/include/linux/ipmi_smi.h	2003-03-27 15:26:22.000000000 -0500
+@@ -0,0 +1,144 @@
++/*
++ * ipmi_smi.h
++ *
++ * MontaVista IPMI system management interface
++ *
++ * Author: MontaVista Software, Inc.
++ *         Corey Minyard <minyard@mvista.com>
++ *         source@mvista.com
++ *
++ * Copyright 2002 MontaVista Software Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License as published by the
++ *  Free Software Foundation; either version 2 of the License, or (at your
++ *  option) any later version.
++ *
++ *
++ *  THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
++ *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ *  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ *  OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ *  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ *  TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ *  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++#ifndef __LINUX_IPMI_SMI_H
++#define __LINUX_IPMI_SMI_H
++
++#include <linux/ipmi_msgdefs.h>
++
++/* This files describes the interface for IPMI system management interface
++   drivers to bind into the IPMI message handler. */
++
++/* Structure for the low-level drivers. */
++typedef struct ipmi_smi *ipmi_smi_t;
++
++/*
++ * Messages to/from the lower layer.  The smi interface will take one
++ * of these to send. After the send has occurred and a response has
++ * been received, it will report this same data structure back up to
++ * the upper layer.  If an error occurs, it should fill in the
++ * response with an error code in the completion code location. When
++ * asyncronous data is received, one of these is allocated, the
++ * data_size is set to zero and the response holds the data from the
++ * get message or get event command that the interface initiated.
++ * Note that it is the interfaces responsibility to detect
++ * asynchronous data and messages and request them from the
++ * interface.
++ */
++struct ipmi_smi_msg
++{
++	struct list_head link;
++
++	long    msgid;
++	void    *user_data;
++
++	/* If 0, add to the end of the queue.  If 1, add to the beginning. */
++	int     prio;
++
++	int           data_size;
++	unsigned char data[IPMI_MAX_MSG_LENGTH];
++
++	int           rsp_size;
++	unsigned char rsp[IPMI_MAX_MSG_LENGTH];
++
++	/* Will be called when the system is done with the message
++           (presumably to free it). */
++	void (*done)(struct ipmi_smi_msg *msg);
++};
++
++struct ipmi_smi_handlers
++{
++	/* Called to enqueue an SMI message to be sent.  This
++	   operation is not allowed to fail.  If an error occurs, it
++	   should report back the error in a received message.  It may
++	   do this in the current call context, since no write locks
++	   are held when this is run.  If the priority is > 0, the
++	   message will go into a high-priority queue and be sent
++	   first.  Otherwise, it goes into a normal-priority queue. */
++	void (*sender)(void                *send_info,
++		       struct ipmi_smi_msg *msg,
++		       int                 priority);
++
++	/* Called by the upper layer to request that we try to get
++	   events from the BMC we are attached to. */
++	void (*request_events)(void *send_info);
++
++	/* Called when someone is using the interface, so the module can
++	   adjust it's use count.  Return zero if successful, or an
++	   errno if not. */
++	int (*new_user)(void *send_info);
++
++	/* Called when someone is no longer using the interface, so the
++	   module can adjust it's use count. */
++	void (*user_left)(void *send_info);
++
++	/* Called when the interface should go into "run to
++	   completion" mode.  If this call sets the value to true, the
++	   interface should make sure that all messages are flushed
++	   out and that none are pending, and any new requests are run
++	   to completion immediately. */
++	void (*set_run_to_completion)(void *send_info, int run_to_completion);
++};
++
++/* Add a low-level interface to the IPMI driver. */
++int ipmi_register_smi(struct ipmi_smi_handlers *handlers,
++		      void                     *send_info,
++		      unsigned char            version_major,
++		      unsigned char            version_minor,
++		      ipmi_smi_t               *intf);
++
++/*
++ * Remove a low-level interface from the IPMI driver.  This will
++ * return an error if the interface is still in use by a user.
++ */
++int ipmi_unregister_smi(ipmi_smi_t intf);
++
++/*
++ * The lower layer reports received messages through this interface.
++ * The data_size should be zero if this is an asyncronous message.  If
++ * the lower layer gets an error sending a message, it should format
++ * an error response in the message response.
++ */
++void ipmi_smi_msg_received(ipmi_smi_t          intf,
++			   struct ipmi_smi_msg *msg);
++
++/* The lower layer received a watchdog pre-timeout on interface. */
++void ipmi_smi_watchdog_pretimeout(ipmi_smi_t intf);
++
++struct ipmi_smi_msg *ipmi_alloc_smi_msg(void);
++static inline void ipmi_free_smi_msg(struct ipmi_smi_msg *msg)
++{
++	msg->done(msg);
++}
++
++#endif /* __LINUX_IPMI_SMI_H */

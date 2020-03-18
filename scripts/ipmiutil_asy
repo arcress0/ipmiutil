@@ -1,0 +1,155 @@
+#! /bin/sh
+#
+#        ipmiutil_asy init script
+#
+# chkconfig: - 91 59
+# description: ipmiutil async bridge agent, listens for IPMI LAN client requests
+#
+# This starts a daemon that listens for asynchronous IPMI LAN soft-shutdown 
+# requests from a remote ipmiutil reset (-o/-D).  It depends upon an imb or 
+# openipmi driver.
+#
+### BEGIN INIT INFO
+# Provides: ipmiutil_asy
+# Required-Start: $local_fs $remote_fs $syslog
+# Required-Stop: $local_fs $remote_fs $syslog
+# Default-Start: 3 4 5 3 4 5 
+# Default-Stop:  0 1 2 6  0 1 2 6 
+# Short-Description: ipmiutil async bridge agent init script
+# Description: Init script starts ipmiutil async bridge agent for remote reset
+### END INIT INFO
+#
+
+#if [ -f /etc/init.d/functions ]; then
+# Source function library.
+#. /etc/init.d/functions
+#fi
+
+name="ipmiutil_asy"
+dname="ipmiutil_asy bridge agent"
+getevtlog=/var/log/${name}.log
+lockfile=/var/lock/subsys/${name}
+prog=/usr/bin/ipmiutil
+
+
+getpid () {
+    p=`ps -ef |grep "$1" |grep -v grep |awk '{print $2}'`
+    echo $p
+}
+
+start()
+{
+	echo -n "Starting $dname: "
+	driverok=0
+	dtype=`ipmiutil cmd -k |grep "IPMI access" |cut -f2 -d'=' |awk '{ print $1 }'`
+	if [ "x$dtype" = "xopen" ]; then
+	   driverok=1
+	fi
+	if [ "x$dtype" = "ximb" ]; then
+	   driverok=1
+	fi
+	if [ $driverok -eq 1 ]
+	then
+	   [ -x $prog ] || exit 5
+	   $prog getevt -a -b >$getevtlog &
+	   retval=$?
+	   PID=$!
+	   if [ $retval -eq 0 ]; then
+		echo $PID >$lockfile
+	   fi
+	else
+	   echo "No imb or ipmi driver loaded, aborting."
+	   retval=1
+        fi
+	echo
+	return $retval
+}
+
+stop()
+{
+	echo -n "Stopping $dname: "
+        retval=1
+        if [ -f $lockfile ]; then
+           p=`cat $lockfile`
+           if [ "x$p" = "x" ]; then
+	        p=`getpid "$prog getevt -a"`
+	   fi
+           if [ "x$p" != "x" ]; then
+                kill $p
+                retval=$?
+           fi
+        fi
+	echo
+	[ $retval -eq 0 ] && rm -f $lockfile
+	return $retval
+}           
+
+restart() {
+  	stop
+	start
+}	
+
+
+rh_status() {
+    if [ -f $lockfile ]; then
+    	p=`cat $lockfile`
+	if [ "x$p" != "x" ]; then
+	   pid=`getpid $p`
+	   if [ "x$pid" != "x" ]; then
+              echo "$dname (pid $pid) is running..."
+	      retval=0
+	   else
+	      echo "$dname is dead but $lockfile exists"
+	      retval=1
+	   fi
+	else
+	   echo "$dname $lockfile exists but is empty"
+	   retval=1
+	fi
+    else
+	echo "$dname is stopped"
+	retval=3
+    fi
+    return $retval
+}
+
+rh_status_q() {
+    rh_status >/dev/null 2>&1
+}
+
+if [ ! -d /var/lock/subsys ]; then
+   lockfile=/var/run/${name}.pid
+fi
+
+case "$1" in
+    start)
+        rh_status_q && exit 0
+        start
+        ;;
+    stop)
+        rh_status_q || exit 0
+        stop
+        ;;
+    restart)
+        restart
+        ;;
+    reload)
+        rh_status_q || exit 7
+        restart
+        ;;
+    force-reload)
+        restart
+        ;;
+    status)
+        rh_status
+        ;;
+    condrestart|try-restart)
+        rh_status_q || exit 0
+        restart
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|status|restart|condrestart|try-restart|reload|force-reload}"
+        exit 2
+esac
+exit $?
+

@@ -1,0 +1,92 @@
+.TH IDISCOVER 8 "Version 1.0: 02 May 2007"
+.SH NAME
+ipmiutil_discover \- discover IPMI LAN-enabled nodes
+.SH SYNOPSIS
+.B "idiscover [-abegisx]"
+
+.SH DESCRIPTION
+.I idiscover
+is a program that uses IPMI LAN commands to discover any nodes
+on the LAN that are available, by probing the RMCP port (623.)
+on those nodes.
+This utility uses IPMI LAN, so no IPMI drivers are needed.
+There are three methods that can be used:
+.br
+\-a   = broadcast RMCP ping method (default)
+.br
+\-g   = GetChannelAuthCap command method
+.br
+else = specific RMCP ping method
+.P
+A beginning IP address can be specified with \-b for broadcast and specific
+methods. An ending IP can be specified for non-broadcast methods.
+
+.SH OPTIONS
+Command line options are described below.
+.IP "-a"
+All nodes, use the broadcast ping method.  This is the default if no options
+are specified.  This will detect the first enabled ethernet interface, and
+defaults to the broadcast address x.x.x.255 (where x.x.x.x is IP address)
+unless \-b is used to specify otherwise.
+.IP "-b <ip>"
+Beginning IP address, required, unless using broadcast with defaults.
+This could be a specific IP address, or a broadcast address, ending in 255,
+if the broadcast method (\-a) is used.
+.IP "-e <ip>"
+Endign IP address of the range.  Not used for broadcast method.
+If this is not specified, a range of one IP address matching the beginning
+IP is assumed.
+.IP "-g"
+Use the GetChannelAuthenticationCapabilities command method over IPMI LAN
+instead of the RMCP ping.  Not compatible with broadcast.
+This may be useful if the vendor BMC does not support RMCP ping for some
+reason.
+.IP "-i eth0"
+The interface name to use when sending the probes.  The default is to
+detect the first enabled ethernet interface (e.g. eth0).
+.IP "-m"
+shows MAC address.  Uses the broadcast ping method, but uses a raw socket
+so that the MAC address can be displayed. This detects the first enabled
+ethernet interface, and defaults to the broadcast address 255.255.255.255
+like \-a.  Using \-m with raw sockets requires root privilege.
+.IP "-r N"
+Repeat the ping N times to each node.  Default is to send 1 ping per node.
+.IP "-x"
+Causes extra debug messages to be displayed.
+
+
+.SH "EXAMPLES"
+
+    idiscover \-a \-b 192.168.1.255
+.br
+Sends a broadcast RMCP ping to discover IPMI LAN nodes on the specified subnet.
+.PP
+    idiscover \-b 192.168.1.100 \-e 192.168.1.254
+.br
+Sends RMCP pings to a range of IP addresses.
+.PP
+    idiscover \-g \-b 192.168.1.100 \-e 192.168.1.254
+.br
+Sends GetChannelAuthCap commands to a range of IP addresses.
+
+
+.SH "SEE ALSO"
+ipmiutil(8) ialarms(8) iconfig(8) icmd(8) ievents(8) ifru(8) igetevent(8) ihealth(8) ilan(8) ireset(8) isel(8) isensor(8) iserial(8) isol(8) iwdt(8)
+
+.SH WARNINGS
+See http://ipmiutil.sourceforge.net/ for the latest version of ipmiutil and any bug fix list.
+
+.SH COPYRIGHT
+Copyright (C) 2009  Kontron America, Inc.
+.PP
+See the file COPYING in the distribution for more details
+regarding redistribution.
+.PP
+This utility is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY.
+
+.SH AUTHOR
+.PP
+Andy Cress <arcress at users.sourceforge.net>
+.br
+

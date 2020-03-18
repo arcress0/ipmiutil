@@ -1,0 +1,137 @@
+.TH ISEL 8 "Version 1.4: 17 Feb 2010"
+.SH NAME
+ipmiutil_sel \- show firmware System Event Log records
+.SH SYNOPSIS
+.B "ipmiutil sel [-abcflswvx -N node -P/-R pswd -U user -EFJTVYZ]"
+
+.SH DESCRIPTION
+.I ipmiutil sel
+is a program that uses IPMI commands to
+to read and display the System Event Log (SEL) which
+is stored by the BMC firmware.  IPMI commands are issued
+to read each record, and, if specified, incrementally write
+records that have not previously been read into the
+Linux syslog (/var/log/messages).
+This utility can use either the /dev/ipmi0 driver from OpenIPMI,
+the /dev/imb driver from Intel, the /dev/ipmikcs driver from valinux,
+direct user-space IOs, or the IPMI LAN interface if \-N.
+
+.SH OPTIONS
+Command line options are described below.
+
+.IP "-a string"
+Add a SEL record with a string of up to 13 characters.  Longer strings will
+be truncated.  Note that this should be used sparingly, but would be useful
+for changes made to the hardware or firmware environment, like "Fan replaced"
+or "flash FW2.1".
+
+.IP "-b bin_file"
+Interpret a file containing raw binary/hex SEL data dumped in binary form,
+such as that produced by "ipmitool sel writeraw bin_file".
+Each set of 16 bytes in the file will be interpreted as an IPMI event.
+
+.IP "-c"
+Show output in a canonical format, with a default delimiter of '|'.
+(same as \-n).
+
+.IP "-d"
+Deletes/Clears the SEL of all records.
+If the SEL becomes full (free space = 0), it no longer accepts new records,
+so the SEL should be cleared periodically (use checksel cron script).
+
+.IP "-e"
+Show Extended sensor descriptions for events if run locally.
+This option will attempt to get the full sensor description from
+/var/lib/ipmiutil/sensor_out.txt, and also use its SDR to decode any raw
+threshold values in the event, if present.
+
+.IP "-f sel_file"
+Interpret a file containing raw ascii text SEL data captured with
+ipmiutil sel \-r, or some other similar utility.
+Each line in the file should be in this
+form, with no leading spaces:
+.br
+04 00 02 76 a9 4a 47 20 00 04 10 09 6f 42 0f ff
+.br
+Lines not in this format will be ignored.
+
+.IP "-l N"
+Show last N SEL records, in reverse order (newest first).
+For some BMC implementations, this may not show all N records specified.
+.IP "-n"
+Show output in a nominal/canonical format, with a default delimiter of '|'.
+(same as \-c).
+.IP "-r"
+Show the 16 raw hex bytes for each SEL entry.  The default is to display
+interpreted entries, and include relevant hex event bytes.
+.IP "-p"
+Port to use.  Defaults to RMCP port 623.
+.IP "-s N"
+Show only SEL events with severity N or greater.  Severity 0=INF, 1=MIN,
+2=MAJ, 3=CRT.  The default is to show all SEL events.
+.IP "-u"
+Show the SEL time as UTC and also get the SEL Time UTC offset if that
+command is supported.  The default is to convert the SEL Time to local time.
+.IP "-v"
+Only show the version information.  This shows:  the ipmiutil sel utility
+version, the BMC version, the IPMI version, the SEL version, and the amount
+of free space in the SEL.
+.IP "-w"
+This  option writes SEL records to the Linux syslog (/var/log/messages)
+or Windows Application Log.  It only writes SEL records that have
+timestamps newer than the last record written to syslog.
+It saves the last timestamp in an index file named
+/usr/share/ipmiutil/sel.idx (.\\sel.idx in Windows).
+.IP "-x"
+Causes extra debug messages to be displayed.
+.IP "-N nodename"
+Nodename or IP address of the remote target system.  If a nodename is
+specified, IPMI LAN interface is used.  Otherwise the local system
+management interface is used.
+.IP "-U rmt_user"
+Remote username for the nodename given.  The default is a null username.
+.IP "-P/-R rmt_pswd"
+Remote password for the nodename given.  The default is a null password.
+.IP "-E"
+Use the remote password from Environment variable IPMI_PASSWORD.
+.IP "-F drv_t"
+Force the driver type to one of the followng:
+imb, va, open, gnu, landesk, lan, lan2, lan2i, kcs, smb.
+Note that lan2i means lan2 with intelplus.
+The default is to detect any available driver type and use it.
+.IP "-J"
+Use the specified LanPlus cipher suite (0 thru 17): 0=none/none/none,
+1=sha1/none/none, 2=sha1/sha1/none, 3=sha1/sha1/cbc128, 4=sha1/sha1/xrc4_128,
+5=sha1/sha1/xrc4_40, 6=md5/none/none, ... 14=md5/md5/xrc4_40.
+Default is 3.
+.IP "-T"
+Use a specified IPMI LAN Authentication Type: 0=None, 1=MD2, 2=MD5, 4=Straight Password, 5=OEM.
+.IP "-V"
+Use a specified IPMI LAN privilege level. 1=Callback level, 2=User level, 3=Operator level, 4=Administrator level (default), 5=OEM level.
+.IP "-Y"
+Yes, do prompt the user for the IPMI LAN remote password.
+Alternatives for the password are \-E or \-P.
+.IP "-Z"
+Set the slave address for a local MC
+
+.SH "SEE ALSO"
+ipmiutil(8) ialarms(8) iconfig(8) icmd(8) idiscover(8) ievents(8) ifru(8) igetevent(8) ihealth(8) ilan(8) ireset(8) isensor(8) iserial(8) isol(8) iwdt(8)
+
+.SH WARNINGS
+See http://ipmiutil.sourceforge.net/ for the latest version of ipmiutil and any
+bug fix list.
+
+.SH COPYRIGHT
+Copyright (C) 2009  Kontron America, Inc.
+.PP
+See the file COPYING in the distribution for more details
+regarding redistribution.
+.PP
+This utility is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY.
+
+.SH AUTHOR
+.PP
+Andy Cress <arcress at users.sourceforge.net>
+.br
+

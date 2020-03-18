@@ -1,0 +1,27 @@
+Source: ipmiutil
+Section: utils
+Priority: optional
+Maintainer: Andy Cress <arcress@users.sourceforge.net>
+Build-Depends: debhelper (>> 9), dh-autoreconf, libssl-dev
+Standards-Version: 3.9.4.0
+Vcs-Svn: svn://svn.code.sf.net/p/ipmiutil/code/trunk
+Vcs-Browser: https://sourceforge.net/p/ipmiutil/code/HEAD/tree/trunk/ 
+Homepage: http://ipmiutil.sourceforge.net/
+
+Package: ipmiutil
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, lsb-base
+Suggests: openipmi
+Description: Easy-to-use IPMI server management utilities
+ The ipmiutil package provides easy-to-use utilities to view the SEL,
+ perform an IPMI chassis reset, set up the IPMI LAN and Platform Event Filter
+ entries to allow SNMP alerts, Serial-Over-LAN console, event daemon, and
+ other IPMI tasks.
+ .
+ These can be invoked with the metacommand ipmiutil, or via subcommand
+ shortcuts as well.  IPMIUTIL can also write sensor thresholds, FRU asset tags,
+ and has a full IPMI configuration save/restore.
+ An IPMI driver can be provided by either the OpenIPMI driver (/dev/ipmi0)
+ or the Intel IPMI driver (/dev/imb), etc.  If used locally and no driver is
+ detected, ipmiutil will use user-space direct I/Os instead.
+

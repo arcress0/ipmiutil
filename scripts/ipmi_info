@@ -1,0 +1,124 @@
+#! /bin/sh
+#
+# ipmi_info         
+#
+# chkconfig: 345 91 07
+# description: ipmi_info saves the OS info (hostname, OS release) into
+#		the IPMI System Info variables, if supported.
+#               It does nothing if IPMI System Info is not supported.
+#
+### BEGIN INIT INFO
+# Provides: ipmi_info
+# Required-Start: $local_fs $network $remote_fs
+# Required-Stop:  $local_fs $network $remote_fs
+# Default-Start:  
+# Default-Stop:   
+# Short-Description: ipmi_info saves OS info to the IPMI system info
+# Description: ipmi_info saves OS info to the IPMI system info
+### END INIT INFO
+
+name=ipmi_info
+iuprog=/usr/bin/ipmiutil
+tmp=/tmp/ipmi_info.tmp
+
+getosver() {
+   if [ -f /etc/os-release ]; then
+      . /etc/os-release
+      echo "${NAME} ${VERSION} kernel ${KERNEL_VERSION}"
+   elif [ -f /etc/redhat-release ]; then
+      cat /etc/redhat-release |head -n1 
+   elif [ -f /etc/SuSE-release ]; then
+      cat /etc/SuSE-release |head -n1 
+   elif [ -f /etc/mvl-release ]; then
+      sver=`grep Monta /etc/mvl-release |awk '{ print $4 }' |cut -f1 -d'.'`
+      echo "Monta Vista Linux version $sver"
+   elif [ -f /etc/debian_version ]; then
+      sver=`grep Debian /etc/issue |awk '{ print $3 }'`
+      echo "Debian Linux version $sver"
+   else 
+      sver=`uname -r`
+      styp=`uname -s`
+      echo "$styp $sver"
+   fi
+}
+
+start()
+{
+	echo -n "Starting $name: "
+	echo
+	retval=0
+	PID=0
+        
+	${iuprog} health -i >$tmp 2>&1
+	if [ $? -eq 0 ]; then
+           name=`hostname`
+           os=`getosver`
+	   echo "setting name=$name, os=$os ..." >>$tmp
+	   ${iuprog} health -n "$name"  >>$tmp 2>&1 
+	   ${iuprog} health -o "$os" >>$tmp 2>&1 
+        else
+           # IPMI System Info is not supported.
+	   retval=0
+	fi
+	echo
+	return $retval
+}
+
+stop()
+{
+	echo -n "Stopping $name: "
+	echo
+        retval=0
+	echo
+	return $retval
+}
+
+restart()
+{
+	stop
+	start
+}
+
+rh_status() {
+    echo "$name is stopped"
+    retval=3
+    return $retval
+}
+
+rh_status_q() {
+    rh_status >/dev/null 2>&1
+}
+
+case "$1" in
+  start)
+        rh_status_q && exit 0
+	start
+	;;
+  stop)
+        rh_status_q || exit 0
+	stop
+	;;
+  status)
+	rh_status 
+	;;
+  restart)
+	restart
+	;;
+  reload)
+        rh_status_q || exit 7
+	restart
+	;;
+  force_reload)
+	restart
+	;;
+  condrestart|try-restart)
+	rh_status_q || exit 0
+	restart
+	;;
+  *)
+	echo "Usage: $0 {start|stop|status|restart|condrestart|try-restart|reload|force-reload}"
+	exit 2
+esac
+
+exit $?
+

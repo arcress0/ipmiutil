@@ -1,0 +1,15 @@
+[Unit]
+Description=ipmiutil ipmi_port service
+After=network.target
+
+[Service]
+Type=forking
+PIDFile=/run/ipmi_port.pid
+EnvironmentFile=/usr/share/ipmiutil/ipmiutil.env
+ExecStartPre=/usr/share/ipmiutil/ipmiutil.setup
+ExecStart=-/usr/sbin/ipmi_port -b
+
+[Install]
+WantedBy=multi-user.target
+
+

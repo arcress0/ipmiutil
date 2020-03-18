@@ -1,0 +1,795 @@
+--- linux-2.5.44-orig/kernel/panic.c	Sat Oct 19 00:02:32 2002
++++ linux-2.5.44/kernel/panic.c	Fri Jan 31 13:03:55 2003
+@@ -20,6 +20,10 @@
+ asmlinkage void sys_sync(void);	/* it's really int */
+ 
+ int panic_timeout;
++char *panic_string;
++#ifdef CONFIG_IPMI_PANIC_ACTION
++   extern void ipmi_reset(int mode);
++#endif  
+ 
+ struct notifier_block *panic_notifier_list;
+ 
+@@ -53,6 +57,7 @@
+ 	va_start(args, fmt);
+ 	vsprintf(buf, fmt, args);
+ 	va_end(args);
++	panic_string = buf;
+ 	printk(KERN_EMERG "Kernel panic: %s\n",buf);
+ 	if (in_interrupt())
+ 		printk(KERN_EMERG "In interrupt handler - not syncing\n");
+@@ -81,7 +86,11 @@
+ 		 *	choosing not too. It might crash, be corrupt or do
+ 		 *	more harm than good for other reasons.
+ 		 */
++#ifdef CONFIG_IPMI_PANIC_ACTION
++		ipmi_reset(CONFIG_IPMI_PANIC_ACTION);
++#else
+ 		machine_restart(NULL);
++#endif
+ 	}
+ #ifdef __sparc__
+ 	{
+--- linux-2.5.44-orig/kernel/ksyms.c	Sat Oct 19 00:01:08 2002
++++ linux-2.5.44/kernel/ksyms.c	Wed Jan 29 10:09:26 2003
+@@ -63,6 +63,8 @@
+ #endif
+ 
+ extern void set_device_ro(kdev_t dev,int flag);
++extern int panic_timeout;
++extern char *panic_string;
+ 
+ extern struct timezone sys_tz;
+ 
+@@ -601,3 +603,6 @@
+ 
+ /* debug */
+ EXPORT_SYMBOL(dump_stack);
++EXPORT_SYMBOL(panic_notifier_list);
++EXPORT_SYMBOL(panic_timeout);
++EXPORT_SYMBOL(panic_string);
+--- linux-2.5.44-orig/drivers/char/Config.in	Thu Jan 30 12:59:15 2003
++++ linux-2.5.44/drivers/char/Config.in	Thu Jan 30 12:55:53 2003
+@@ -110,6 +110,9 @@
+ dep_tristate '  Device interface for IPMI' CONFIG_IPMI_DEVICE_INTERFACE $CONFIG_IPMI_HANDLER
+ dep_tristate '  IPMI KCS handler' CONFIG_IPMI_KCS $CONFIG_IPMI_HANDLER
+ dep_tristate '  IPMI Watchdog Timer' CONFIG_IPMI_WATCHDOG $CONFIG_IPMI_HANDLER
++if [ "$CONFIG_IPMI_HANDLER" == "y" ]; then
++   int '  Action after Panic (0=reset,1=power down,2=power cycle)' CONFIG_IPMI_PANIC_ACTION 0 
++fi
+ 
+ mainmenu_option next_comment
+ comment 'Watchdog Cards'
+--- linux-2.5.44-orig/drivers/char/ipmi/Makefile	Thu Jan 30 12:59:15 2003
++++ linux-2.5.44/drivers/char/ipmi/Makefile	Fri Jan 31 11:40:33 2003
+@@ -6,7 +6,7 @@
+ 
+ ipmi_kcs_drv-objs := ipmi_kcs_sm.o ipmi_kcs_intf.o
+ 
+-obj-$(CONFIG_IPMI_HANDLER) += ipmi_msghandler.o
++obj-$(CONFIG_IPMI_HANDLER) += ipmi_msghandler.o ipmi_panic.o
+ obj-$(CONFIG_IPMI_DEVICE_INTERFACE) += ipmi_devintf.o
+ obj-$(CONFIG_IPMI_KCS) += ipmi_kcs_drv.o
+ obj-$(CONFIG_IPMI_WATCHDOG) += ipmi_watchdog.o
+--- linux-2.5.44-orig/drivers/char/ipmi/ipmi_msghandler.c	Thu Jan 30 12:59:15 2003
++++ linux-2.5.44/drivers/char/ipmi/ipmi_msghandler.c	Tue Feb  4 10:46:51 2003
+@@ -44,6 +44,14 @@
+ #include <linux/notifier.h>
+ #include <linux/init.h>
+ 
++#ifdef CONFIG_IPMI_PANIC_ACTION
++#define uchar   unsigned char
++extern int ipmi_panic_init(void);
++extern int ipmi_send_recv(uchar cmd, uchar netfn, uchar lun, 
++			uchar *sbuf, int slen, uchar *rbuf, int rlen, 
++			int *nret, uchar *cc);
++#endif
++
+ struct ipmi_recv_msg *ipmi_alloc_recv_msg(void);
+ static int ipmi_init_msghandler(void);
+ 
+@@ -369,6 +377,7 @@
+ 	return rv;
+ }
+ 
++static int fIPMIok = 0;     /* true if an IPMI interface is valid */
+ 
+ int ipmi_create_user(unsigned int          if_num,
+ 		     struct ipmi_user_hndl *handler,
+@@ -413,6 +422,7 @@
+ 		goto out_unlock;
+ 	}
+ 
++	fIPMIok = 1;  /* at least one IPMI interface is valid */
+ 	new_user->handler = handler;
+ 	new_user->handler_data = handler_data;
+ 	new_user->intf = ipmi_interfaces[if_num];
+@@ -1618,8 +1628,13 @@
+ 	return rv;
+ }
+ 
++extern void machine_restart(char * __unused);
++extern void machine_power_off(void);
++extern char *panic_string;
++
+ #ifdef CONFIG_IPMI_PANIC_EVENT
+ 
++#ifndef CONFIG_IPMI_PANIC_ACTION
+ static void dummy_smi_done_handler(struct ipmi_smi_msg *msg)
+ {
+ }
+@@ -1652,12 +1667,9 @@
+ 	data[4] = 0x6f; /* Sensor specific, IPMI table 36-1 */
+ 	data[5] = 0xa1; /* Runtime stop OEM bytes 2 & 3. */
+ 
+-	/* These used to have the first three bytes of the panic string,
+-	   but not only is that not terribly useful, it's not available
+-	   any more. */
+-	data[3] = 0;
+-	data[6] = 0;
+-	data[7] = 0;
++	data[3] = panic_string[0];
++	data[6] = panic_string[1];
++	data[7] = panic_string[2];
+ 
+ 	smi_msg.done = dummy_smi_done_handler;
+ 	recv_msg.done = dummy_recv_done_handler;
+@@ -1681,6 +1693,30 @@
+ 			       intf->my_lun);
+ 	}
+ }
++#endif
++
++void ipmi_reset(int mode)
++{
++#ifdef CONFIG_IPMI_PANIC_ACTION
++   unsigned char imode;
++   unsigned char cc;
++   int rc, i; 
++
++   /* Input mode param:  0 = soft reset, 1 = power down, 2 = power cycle */
++   if (!fIPMIok || mode == 0 || mode > 3) {
++	machine_restart(NULL);   /* normal Linux reset (arch/i386/) */
++   	return;
++   }
++   /* 
++    * IPMI Chassis Reset modes:
++    * 0 = power down, 1 = power up, 2 = power cycle, 3 = hard reset 
++    */
++   if (mode == 1) imode = 0;
++   else           imode = mode;
++   rc = ipmi_send_recv(0x02,0x00,0,&imode,1,NULL,0,&i,&cc);
++#endif
++   return;
++}
+ #endif /* CONFIG_IPMI_PANIC_EVENT */
+ 
+ static int has_paniced = 0;
+@@ -1699,14 +1735,55 @@
+ 	/* For every registered interface, set it to run to completion. */
+ 	for (i=0; i<MAX_IPMI_INTERFACES; i++) {
+ 		intf = ipmi_interfaces[i];
+-		if (intf == NULL)
+-			continue;
+-
++		if (intf == NULL) continue;
+ 		intf->handlers->set_run_to_completion(intf->send_info, 1);
+ 	}
+ 
+ #ifdef CONFIG_IPMI_PANIC_EVENT
+-	send_panic_events();
++        if (fIPMIok) {
++#ifdef CONFIG_IPMI_PANIC_ACTION
++		unsigned char alarms, cc;
++		unsigned char obuf[16];
++		unsigned char ibuf[16];
++		int olen, rc;
++
++		/* Get Alarm LED values */
++		obuf[0] = 0x03;     // PRIVATE_BUS_ID;
++		obuf[1] = 0x41;     // ALARMS_PANEL_READ;
++		obuf[2] = 1;        // one byte of alarms data
++		obuf[3] = 0;        // initial alarms value
++		olen = 3;
++		rc = ipmi_send_recv(0x52,0x06,0,obuf,olen,ibuf,4,&i,&cc);
++		alarms = ibuf[0];
++		printk("ipmi_panic: get alarms rc=%d cc=%x, alarms=%02x\n",
++			rc,cc,alarms);
++		if (alarms == 0) alarms = 0x0F; /* 0=err, fallback to default */
++		if (rc == 0) {     // valid, so ok to set alarm LED
++		   /* Set Crit Alarm LED */
++		   obuf[0] = 0x03;     // PRIVATE_BUS_ID;
++		   obuf[1] = 0x40;     // ALARMS_PANEL_WRITE;
++		   obuf[2] = 1;        // one byte of alarms data
++		   obuf[3] = (alarms & 0x0D) | 0xF0;  // turn on critical alarm 
++		   olen = 4;
++		   rc = ipmi_send_recv(0x52,0x06,0,obuf,olen,NULL,0,&i,&cc);
++		   printk("ipmi_panic: set crit alarm rc=%d cc=%x\n",rc,cc);
++		}
++		/* Log the OS Critical Stop to the SEL (BMC firmware log). */
++		obuf[0] = 0x21; /* Kernel generator ID, IPMI table 5-4 */
++		obuf[1] = 0x03; /* This is for IPMI 1.0. */
++		obuf[2] = 0x20; /* OS Critical Stop, IPMI table 36-3 */
++		obuf[4] = 0x6f; /* Sensor specific, IPMI table 36-1 */
++		obuf[5] = 0xa1; /* Runtime stop OEM bytes 2 & 3. */
++		obuf[3] = panic_string[0];
++		obuf[6] = panic_string[1];
++		obuf[7] = panic_string[2];
++		olen = 8;
++		rc = ipmi_send_recv(0x02,0x04,0,obuf,olen,NULL,0,&i,&cc);
++		printk("ipmi_panic: log OS Critical Stop rc=%d cc=%x\n",rc,cc);
++#else
++		send_panic_events();
++#endif
++        }
+ #endif
+ 
+ 	return NOTIFY_DONE;
+@@ -1738,6 +1815,9 @@
+ 
+ 	notifier_chain_register(&panic_notifier_list, &panic_block);
+ 
++#ifdef CONFIG_IPMI_PANIC_ACTION
++	ipmi_panic_init();
++#endif
+ 	initialized = 1;
+ 
+ 	printk(KERN_INFO "ipmi: message handler initialized\n");
+@@ -1795,3 +1875,6 @@
+ EXPORT_SYMBOL(ipmi_get_my_address);
+ EXPORT_SYMBOL(ipmi_set_my_LUN);
+ EXPORT_SYMBOL(ipmi_get_my_LUN);
++#ifdef CONFIG_IPMI_PANIC_ACTION
++EXPORT_SYMBOL(ipmi_reset);
++#endif
+--- /dev/null	Fri Mar 23 23:37:44 2001
++++ linux-2.5.44/drivers/char/ipmi/ipmi_panic.c	Tue Feb  4 10:50:45 2003
+@@ -0,0 +1,515 @@
++/*
++ * ipmi_panic.c
++ *
++ * This code is needed to run a streamlined IPMI KCS command when
++ * the rest of the system may be dead (panic time).  It must wait
++ * for completion of the receive function also.
++ * There will be zero or one BMC, with KCS as a minimum and perhaps
++ * other interfaces, so doing KCS to a default BMC LUN is valid here.
++ * 
++ * Note that CONFIG_IPMI_HANDLER should be =y (rather than =m) to 
++ * ensure that this handler is loaded early enough to cover boot
++ * time panic conditions.  CONFIG_IPMI_PANIC_ACTION can only be
++ * defined if CONFIG_IPMI_HANDLER=y.
++ *
++ * Author: Andy Cress <arcress at users.sourceforge.net> 
++ *
++ * Change History:
++ * 01/31/03 Andy Cress - created for kernel 2.5.44 with OpenIPMI
++ *
++ * Copyright 2003 Intel Corp.
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License as published by the
++ *  Free Software Foundation; either version 2 of the License, or (at your
++ *  option) any later version.
++ *
++ *
++ *  THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
++ *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ *  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ *  OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ *  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ *  TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ *  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++#include <linux/config.h>
++#include <linux/types.h>
++#include <linux/errno.h>
++#include <linux/kernel.h>
++#include <asm/io.h>
++#include <asm/uaccess.h>
++#include <asm/system.h>
++#include <asm/semaphore.h>
++#include <linux/delay.h>
++
++#define uchar     unsigned char
++
++#define KCS_READY_DELAY			5
++#define BMC_RESPONSE_DELAY	        5
++#define BMC_RETRY_DELAY			60
++
++#if defined(__ia64__)
++#define KCS_BASE                        0x8a2
++#else
++#define KCS_BASE 			0xca2
++#endif
++#define KCS_STATUS_REG    (KCS_BASE + 1)
++#define KCS_COMMAND_REG   (KCS_BASE + 1)
++#define KCS_DATAIN_REG    (KCS_BASE + 0)
++#define KCS_DATAOUT_REG   (KCS_BASE + 0)
++
++/* State bits based on S1 & S0 below */
++#define KCS_STATE_MASK        0xC0
++#define KCS_IDLE_STATE        0x00
++#define KCS_READ_STATE        0x40
++#define KCS_WRITE_STATE       0x80
++#define KCS_ERROR_STATE       0xC0
++
++#define KCS_IBF		      0x02
++#define KCS_OBF		      0x01
++#define KCS_SMS_ATN	      0x04
++
++#define SEND_INIT			1
++#define SEND_START			2
++#define SEND_NEXT			3
++#define SEND_END			4
++#define RECV_START			5
++#define RECV_INIT			6
++#define RECV_NEXT			7
++#define RECV_INIT2			8
++#define RECV_END			9
++#define END				10
++#define ERROR				0
++
++/* SMS Transfer Stream Control Codes */
++#define GET_STATUS_ABORT   0x60
++#define WRITE_START	   0x61
++#define WRITE_END	   0x62
++#define KCS_READ	   0x68
++
++#define MAX_INVALID_RESPONSE_COUNT    2
++#define MIN_BMC_RESPONSE_SIZE         3
++#define MAX_IMB_PACKET_SIZE           33
++#define MAX_BMC_RESPONSE_SIZE (MIN_BMC_RESPONSE_SIZE + MAX_IMB_PACKET_SIZE)
++#define MAX_XFER_LENGTH               (MAX_IMB_PACKET_SIZE * 2)                 
++
++#define MAX_BUFFER_SIZE		64
++
++typedef struct bmc_response
++	{
++  unsigned char lun               :2;
++  unsigned char netfn             :6;
++  unsigned char cmd;
++	unsigned char	cc;
++	unsigned char	data[1];
++	}BMC_RESPONSE;
++
++typedef struct bmc_request
++	{
++  unsigned char lun               :2;
++  unsigned char netfn             :6;
++  unsigned char cmd;
++	unsigned char	data[1];
++	}BMC_REQUEST;
++
++/* GET_DEVICE_ID RESPONSE (11 bytes) */
++typedef struct device_id_response
++  {
++  unsigned char device_id;
++  
++  unsigned char device_revision         :4;
++  unsigned char reserved                :3;
++  unsigned char provides_sdr            :1;
++  
++  unsigned char major_firmware_revision :7;
++  #define NORMAL_OPERATION  0
++  #define DEVICE_BUSY       1
++  unsigned char device_available        :1;
++  
++  unsigned char minor_firmware_revision;
++  unsigned char ipmi_version_major      :4;
++  unsigned char ipmi_version_minor      :4;
++  
++  unsigned char supports_sensor_device  :1;
++  unsigned char supports_sdr_device     :1;
++  unsigned char supports_sel_device     :1;
++  unsigned char supports_fru_device     :1;
++  unsigned char supports_ipmb_receiver  :1;
++  unsigned char supports_ipmb_generator :1;
++  unsigned char supports_bridge         :1;
++  unsigned char supports_chassis_device :1;
++  
++  unsigned char manufacturer_id1;
++  unsigned char manufacturer_id2;
++  unsigned char manufacturer_id3;
++  unsigned short product_id;
++  } DEVICE_ID_RESPONSE;
++
++/*************************************/
++
++#if defined(__ia64__) 
++static char kcs_new = 1; 
++#else
++static char kcs_new = 0; 
++#endif
++DECLARE_MUTEX(kcs_sem);
++
++/*************************************/
++
++/*
++ * kcs chip mashing stuff
++ */
++static int wait_while_ibf(void)
++{
++	unsigned char status_byte;
++
++	status_byte = inb_p(KCS_STATUS_REG);
++	if ((status_byte & KCS_IBF) == 0) return (0);
++	mdelay(KCS_READY_DELAY);
++	status_byte = inb_p(KCS_STATUS_REG);
++	if (status_byte & KCS_IBF) return (-1);
++	return (0);
++}
++
++static int is_obf_set(void)
++{
++	unsigned char cs;
++	cs = inb_p(KCS_STATUS_REG);
++	return ((cs & KCS_OBF) == KCS_OBF);
++}
++
++static int wait_until_obf(void)
++{
++	int retries = 0;
++
++	while (retries < 2) {
++		if (is_obf_set()) return (0);
++		mdelay(KCS_READY_DELAY);
++		retries++;
++	}
++	return (-ETIMEDOUT);
++}
++
++static unsigned char get_kcs_state(void)
++{
++	unsigned char cs;
++
++	cs = inb_p(KCS_STATUS_REG);
++	return (cs & KCS_STATE_MASK);
++}
++
++static unsigned char read_kcs_data(void)
++{
++	unsigned char data;
++
++	data = inb_p(KCS_DATAOUT_REG);
++	return (data);
++}
++
++static void write_kcs_data(unsigned char data)
++{
++	outb_p(data, KCS_DATAIN_REG);
++}
++
++static void write_kcs_cmd(unsigned char cmd)
++{
++	outb_p(cmd, KCS_COMMAND_REG);
++}
++
++static int clear_obf(void)
++{
++	read_kcs_data();
++	return (0);
++}
++
++static int kcs_xfer(BMC_REQUEST * request, int request_len,
++		    BMC_RESPONSE * response, int *response_len)
++{
++	unsigned char *xmit_buffer, *recv_buffer;
++	int i = 0, rc = 0, state = SEND_INIT, bad = 0;
++
++	xmit_buffer = (unsigned char *) request;
++	recv_buffer = (unsigned char *) response;
++
++	while (1) {
++		if (state == END)
++			break;
++		else if (bad > 2) {
++			printk("[ipmi_panic] Maximum retries exceeded.\n");
++			rc = -EIO;
++			break;
++		}
++		switch (state) {
++		case SEND_INIT:
++			{
++				i = 0;
++				state = SEND_START;
++				wait_while_ibf();
++				if (kcs_new) clear_obf();
++			}
++		case SEND_START:
++			{
++				state = SEND_NEXT;
++				write_kcs_cmd(WRITE_START);
++				wait_while_ibf();
++			}
++		case SEND_NEXT:
++			{
++				if (i == (request_len - 1)) {
++					state = SEND_END;
++					break;
++				}
++				if (get_kcs_state() != KCS_WRITE_STATE) {
++					state = ERROR;
++					break;
++				}
++				write_kcs_data(xmit_buffer[i++]);
++				wait_while_ibf();
++				if (kcs_new) clear_obf();
++				break;
++			}
++		case SEND_END:
++			{
++				if (!kcs_new) wait_while_ibf();
++				write_kcs_cmd(WRITE_END);
++				wait_while_ibf();
++				if (get_kcs_state() != KCS_WRITE_STATE) {
++					state = ERROR;
++					break;
++				}
++				if (kcs_new) clear_obf();
++				write_kcs_data(xmit_buffer[i++]);
++				wait_while_ibf();
++				state = RECV_START;
++			}
++		case RECV_START:
++			{
++				switch (get_kcs_state()) {
++				case KCS_ERROR_STATE:
++					{
++						state = ERROR;
++						break;
++					}
++				case KCS_WRITE_STATE:
++				case KCS_IDLE_STATE:
++					{
++						mdelay(BMC_RESPONSE_DELAY);
++						break;
++					}
++				case KCS_READ_STATE:
++					{
++						i = 0;
++						memset(recv_buffer, 0,
++						       *response_len);
++						state = RECV_INIT;
++						break;
++					}
++				}
++				break;
++			}
++		case RECV_INIT:
++			{
++				switch (get_kcs_state()) {
++				case KCS_ERROR_STATE:
++				case KCS_WRITE_STATE:
++					{
++						state = ERROR;
++						break;
++					}
++				case KCS_IDLE_STATE:
++					{
++						state = RECV_END;
++						break;
++					}
++				case KCS_READ_STATE:
++					{
++						if (is_obf_set())
++							state = RECV_NEXT;
++						else    mdelay(1);
++						break;
++					}
++				default:
++					{
++						mdelay(1);
++						break;
++					}
++				}
++				break;
++			}
++		case RECV_NEXT:
++			{
++				if (i >= *response_len) {
++					rc = -EOVERFLOW;
++					state = ERROR;
++					break;
++				}
++				recv_buffer[i++] = read_kcs_data();
++				if (!kcs_new) wait_while_ibf();
++				write_kcs_data(KCS_READ);
++				if (kcs_new)  wait_while_ibf();
++				state = RECV_INIT2;
++				break;
++			}
++		case RECV_INIT2:
++			{
++				switch (get_kcs_state()) {
++				case KCS_ERROR_STATE:
++				case KCS_WRITE_STATE:
++					{
++						state = ERROR;
++						break;
++					}
++				case KCS_IDLE_STATE:
++					{
++						if (kcs_new) {
++                                                   if (wait_until_obf() == 0) {
++                                                        clear_obf();
++                                                        state = RECV_END;
++                                                   } else {
++                                                        state = ERROR;
++                                                   }
++						} else {
++						   state = RECV_END;
++						}
++						break;
++					}
++				case KCS_READ_STATE:
++					{
++						if (kcs_new) {
++                                                   if (wait_until_obf() == 0)
++                                                        state = RECV_NEXT;
++                                                   else state = ERROR;
++						} else {
++						   if (is_obf_set())
++							state = RECV_NEXT;
++						}
++						break;
++					}
++				}
++				break;
++			}
++		case RECV_END:
++			{
++				if ((i < MIN_BMC_RESPONSE_SIZE) ||
++				    (response->netfn != (request->netfn | 0x01))
++				    || (response->cmd != request->cmd)) {
++					if (request->cmd == 0x01 && 
++					    request->netfn == 0x06 &&
++					    response->netfn == 0x2b) /*ok*/;
++					else {  /* flag the error */
++					printk("[ipmi_panic] Request/Response CMD/NETFN mismatch error\n");
++
++					printk("     i=%d, RQcmd/RQnetfn=0x%x/0x%x,RScmd/RSnetfn=0x%x/0x%x\n",
++					     i, request->cmd, request->netfn,
++					     response->cmd, response->netfn);
++					mdelay(BMC_RETRY_DELAY);
++					bad++;
++					state = SEND_INIT;
++					break;
++					}
++				}
++
++				*response_len = i;
++				rc = 0;
++				state = END;
++				break;
++			}
++		case ERROR:
++		default:
++			{
++				printk("[ipmi_panic] BMC in bad state. Retrying transfer\n");
++				mdelay(BMC_RETRY_DELAY);
++				bad++;
++				state = SEND_INIT;
++				break;
++			}
++		}
++	}
++	return (rc);
++} 
++
++int ipmi_send_recv(uchar cmd, uchar netfn, uchar lun, uchar *sbuf, int slen,
++                   uchar *rbuf, int rlen, int *nret, uchar *cc)
++{
++   uchar bmc_outbuf[MAX_BUFFER_SIZE];
++   uchar bmc_inbuf[MAX_BUFFER_SIZE];
++   BMC_REQUEST *bmc_req;
++   BMC_RESPONSE *bmc_resp;
++   int   bmc_outlen;
++   int   bmc_inlen;
++   int   rc = 0;
++
++   if (kcs_new == 2) return (-ENXIO);
++   
++   memset(bmc_outbuf,0, sizeof(bmc_outbuf));
++   memset(bmc_inbuf,0, sizeof(bmc_inbuf));
++   bmc_req  = (BMC_REQUEST *)bmc_outbuf;
++   bmc_resp = (BMC_RESPONSE *)bmc_inbuf;
++   bmc_req->cmd   = cmd;
++   bmc_req->netfn = netfn;
++   bmc_req->lun   = lun;
++   bmc_outlen = slen + 2;
++   bmc_inlen  = sizeof(bmc_inbuf);
++   if (slen > 0) memcpy(bmc_req->data,sbuf,slen);
++
++   rc = kcs_xfer(bmc_req, bmc_outlen, bmc_resp, &bmc_inlen);
++   if (bmc_resp->cc == 0xcc)   /* flaky NMI fixup */
++       rc = kcs_xfer(bmc_req, bmc_outlen, bmc_resp, &bmc_inlen); /*retry*/
++   
++   /* copy the response */
++   *cc = bmc_resp->cc;
++   if (bmc_inlen > rlen) bmc_inlen = rlen;
++   *nret = bmc_inlen;
++   if (bmc_inlen > 0) memcpy(rbuf,bmc_resp->data,bmc_inlen);
++
++   return(rc);
++}
++
++int ipmi_panic_init(void)
++{
++	int i, rc;
++	uchar cc;
++	uchar bdev[16];
++	DEVICE_ID_RESPONSE *dev_id;
++
++	printk("ipmi_panic driver at io 0x%x\n", KCS_BASE);
++	if ((inb_p(KCS_STATUS_REG) == 0xFF) &&
++	    (inb_p(KCS_DATAIN_REG) == 0xFF)) {
++		printk("--KCS ISA window not present, exiting.\n");
++		return (-ENXIO);
++	}
++
++	/* Get Device ID */
++	rc = ipmi_send_recv(0x01,0x06,0,NULL,0,bdev,sizeof(bdev),&i,&cc);
++	if (rc != 0) kcs_new = 2;  /* bad */
++        else if (cc != 0) kcs_new = 2;  /* bad */
++	else 
++	{
++	  dev_id = (DEVICE_ID_RESPONSE *)&bdev[0];
++	  printk("--BMC version %x.%x, IPMI version %d.%d\n",
++	       dev_id->major_firmware_revision,
++	       dev_id->minor_firmware_revision,
++	       dev_id->ipmi_version_major, dev_id->ipmi_version_minor);
++	  if ((dev_id->ipmi_version_major == 0) &&
++	      (dev_id->ipmi_version_minor == 9)) {
++		printk("--Using legacy KCS state machine\n");
++		kcs_new = 0;
++	  } else {
++		printk("--Using new KCS state machine\n");
++		kcs_new = 1;
++	  }
++	} 
++	/* dont care about chipset vendor, but test Lancewood & IPF to be sure*/
++
++	return(rc);
++}
++
++/* end ipmi_panic.c */
+--- linux-2.5.44-orig/arch/i386/kernel/reboot.c	Sat Oct 19 00:01:20 2002
++++ linux-2.5.44/arch/i386/kernel/reboot.c	Thu Jan 30 15:45:32 2003
+@@ -221,6 +221,10 @@
+ 				: "i" ((void *) (0x1000 - sizeof (real_mode_switch) - 100)));
+ }
+ 
++#ifdef CONFIG_IPMI_PANIC_ACTION
++extern void ipmi_reset(int mode);
++#endif
++
+ void machine_restart(char * __unused)
+ {
+ #if CONFIG_SMP
+@@ -277,6 +281,9 @@
+ 		}
+ 	}
+ 
++#ifdef CONFIG_IPMI_PANIC_ACTION
++	ipmi_reset(1);
++#endif
+ 	machine_real_restart(jump_to_bios, sizeof(jump_to_bios));
+ }
+ 
+@@ -288,5 +295,8 @@
+ {
+ 	if (pm_power_off)
+ 		pm_power_off();
++#ifdef CONFIG_IPMI_PANIC_ACTION
++	ipmi_reset(0);
++#endif
+ }
+ 

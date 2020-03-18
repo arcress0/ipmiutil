@@ -1,0 +1,65 @@
+HPIUTIL TODO
+
+x Porting the utilities in hpiutil from HPI_A to HPI_B
+  These can be built for either version of HPI via a compile flag.
+  They default to HPI_A, since HPI_B libraries are not fully released yet.
+  Ported to HPI B with OpenHPI:
+    hpialarmpanel.c done, with compile flags 10/13/04
+    hpireset.c, hpisensor.c, hpisel.c hpiwdt.c - done
+    hpifru.c (hpifrub.c) - done
+    hpievent.c (runs, but ThresholdSet error -1010 due to lib bug)
+  COMPLETE
+
+x SpiLibd supplies inventory capability for DIMMs, but gives error when
+  trying to get its inventory data.  
+  COMPLETE in hpiutil-1.1.9
+
+Intel HPI library/daemon (SpiLibd) known issues:
+- If the SEL is totally empty (not even a 'cleared' message), the SpiLibd
+  will not start because the GetSelEntry returns 0xcb.  
+  The lib probably needs to set eventid to zero and proceed in this case.
+
+OpenHPI library/daemon with ipmidirect plugin:
+  11/10/06 completed adding LEDs, watchdog, and Intel RMS features
+  12/07/06 openhpi-2.6.3 released, fully tested
+
+OpenHPI library with ipmi plugin testing & issues:
+  Continuing testing of hpiutil with OpenHPI using its ipmi plugin, 
+  but currently there are blocking bugs open (see latest date below).
+  02/11/04 OpenHPI 0.5 dies during discovery
+  05/24/04 OpenHPI 1.0.0 testing, wrote more bugzillas
+  10/14/04 openhpi-1.9.1 testing, then added alarm panel code
+      With patches to 1.9.1, alarm panel controls are operational now.
+  12/02/04 Submitted fixes for watchdog 932510 & 1077934.
+  01/10/05 Submitted fixes for several inventory bugs into openhpi-2.0.1 cvs.
+  Bug list: (f=fixed, x=rejected, o=open)
+    x 924280 IPMI plug-in takes too long to discover       2004-03-26 18:24 
+             (ref #959765)
+    x 932486 wrong string terminator for Compact SDRs      2004-04-09 15:37 
+    f 932492 Lots of FRU errors displayed during discovery 2004-04-09 15:47 
+    f 932496 EventLog RecordId and Time are invalid        2004-04-09 15:55 
+    f 932510 Watchdog values incorrect                     2004-04-09 16:09 
+    f 933737 hpievent test failed (EventGet & hyst_set)    2004-04-12 12:29 
+    f 933741 Reset Controls not implemented                2004-04-12 12:33 
+    f 934475 Add some alarm panel logic                    2004-04-13 16:23 
+    f 948551 RdrGet returns -1024 with hpifru              2004-05-05 11:25 
+    f 948644 ResetStateSet returns error -1005             2004-05-05 14:01 
+    o 959749 hpithres returns -1006 from ThresholdsGet     2004-05-24 18:02 
+    f 959753 No Inventory RDRs are populated               2004-05-24 18:13 
+    f 959765 IPMI plug-in takes too long to discover       2004-05-24 18:27 
+             (some progress, 10 min down to 3 min - now 2.5 min)
+   f 1040276 Event in SEL not mapped to HPI                2004-10-04 19:22
+   f 1068098 EventLogEntryGet returns less than 16 data by 2004-11-17 11:04
+   o 1070785 OpenHPI discover method hangs if system is no 2004-11-21 23:54
+   f 1077934 some entity tags have zero length             2004-12-02 16:46
+   o 1086122 Can't set (write) Inventory fields            2004-12-15 18:02 
+   f 1090496 FLOAT64 decoding should not be scientific not 2004-12-23 13:39 
+   f 1095266 Inventory Product Fields report Board Area ty 2005-01-03 16:24 
+   f 1095262 Inventory Custom field not retrieved          2005-01-03 16:14 
+   o 1095256 Takes 5 Discovery passes to fill in FRU data  2005-01-03 16:09 
+   f 1095225 Inventory content truncated                   2005-01-03 15:04 
+   f 1098067 hpisensor output usability                    2005-01-07 13:37
+   f 1098073 ThresholdsGet sometimes returns TIMEOUT       2005-01-07 13:49
+  09/26/06 Submitted bug against openhpi-2.6.2 ipmi plugin discovery failure
+   o 1565999 ohoi: domain not fully up, sel support = 0    2006-09-26 17;16
+

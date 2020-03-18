@@ -1,0 +1,115 @@
+.TH ICMD 8 "Version 1.0: 10 Aug 2004"
+.SH NAME
+ipmiutil_cmd \- a tool to send specific IPMI commands via the command line.
+
+.SH SYNOPSIS
+.B "ipmiutil cmd [-pqsx -NUPREFJTVY] bus rsSa netFn/lun cmd [data bytes]"
+
+.SH DESCRIPTION
+This
+.I ipmiutil cmd
+tool sends specific IPMI commands to the firmware.  The commands
+are composed as hex values on the command line.  This tool was
+written to allow in-band use to match the DOS CMDTOOL.EXE or
+IPMITOOL.EXE program which is distributed with many Intel servers.
+Certain scripts or pre-written commands may have been supplied for
+the DOS tool that can now be used while the system is running
+Linux or Windows.
+
+This utility can use either the /dev/ipmi0 driver from OpenIPMI,
+the /dev/imb driver from Intel, the /dev/ipmikcs driver from valinux,
+direct user-space IOs, or the IPMI LAN interface if \-N.
+
+This tool should only be used if you are familiar with the IPMI 1.5
+specification, or you have specific pre-written commands to send.
+
+
+.SH OPTIONS
+Command line options are described below.
+.IP "-p"
+Port to use.  Defaults to RMCP port 623.
+.IP "-q"
+Quiet mode.  Show only minimal header information.
+.IP "-s"
+Skips the GetDeviceID command
+.IP "-x"
+Causes extra debug messages to be displayed.
+.IP "-N nodename"
+Nodename or IP address of the remote target system.  If a nodename is
+specified, IPMI LAN interface is used.  Otherwise the local system
+management interface is used.
+.IP "-U rmt_user"
+Remote username for the nodename given.  The default is a null username.
+.IP "-P/-R rmt_pswd"
+Remote password for the nodename given.  The default is a null password.
+.IP "-E"
+Use the remote password from Environment variable IPMI_PASSWORD.
+.IP "-F drv_t"
+Force the driver type to one of the followng:
+imb, va, open, gnu, landesk, lan, lan2, lan2i, kcs, smb.
+Note that lan2i means lan2 with intelplus.
+The default is to detect any available driver type and use it.
+.IP "-J"
+Use the specified LanPlus cipher suite (0 thru 17): 0=none/none/none,
+1=sha1/none/none, 2=sha1/sha1/none, 3=sha1/sha1/cbc128, 4=sha1/sha1/xrc4_128,
+5=sha1/sha1/xrc4_40, 6=md5/none/none, ... 14=md5/md5/xrc4_40.
+Default is 3.
+.IP "-T"
+Use a specified IPMI LAN Authentication Type: 0=None, 1=MD2, 2=MD5, 4=Straight Password, 5=OEM.
+.IP "-V"
+Use a specified IPMI LAN privilege level. 1=Callback level, 2=User level, 3=Operator level, 4=Administrator level (default), 5=OEM level.
+.IP "-Y"
+Yes, do prompt the user for the IPMI LAN remote password.
+Alternatives for the password are \-E or \-P.
+
+.SH PARAMETERS
+The following parameters are used by icmd.  Each is represented as
+a two-digit hex byte.  The parameters have no default values.
+
+.IP "bus"
+This byte contains the bus number for this command, usually 00.
+
+.IP "rsSa"
+This is the resource slave address, usually 0x20 for the BMC.
+
+.IP "netFn/lun"
+This byte combines the net Function and Lun.  The 2 low-order bits
+are the Lun and the 6 high-order bits are the net Function.
+This representation is consistent with the DOS CMDTOOL/IPMITOOL.
+
+.IP "cmd"
+This byte contains the IPMI command.
+
+.IP "[data bytes]"
+This is a sequence of zero to 16 bytes that represent data bytes
+specific to this command.
+
+.SH "EXAMPLES"
+icmd 00 20 18 01
+.br
+Sends the GetDevice ID command to the BMC.
+.PP
+icmd 00 20 28 43 00 00 ff ff 00 ff
+.br
+Sends a Get SEL entry command for the last entry in the firmware log.
+
+.SH "SEE ALSO"
+ipmiutil(8) ialarms(8) iconfig(8) idiscover(8) ievents(8) ifru(8) igetevent(8) ihealth(8) ilan(8) ireset(8) isel(8) isensor(8) iserial(8) isol(8) iwdt(8)
+
+.SH WARNINGS
+See http://ipmiutil.sourceforge.net/ for the latest version of ipmiutil and any bug fix list.
+
+.SH COPYRIGHT
+Copyright (C) 2009  Kontron America, Inc.
+.PP
+See the file COPYING in the distribution for more details
+regarding redistribution.
+.PP
+This utility is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY.
+
+.SH AUTHOR
+.PP
+Andy Cress <arcress at users.sourceforge.net>
+.br
+

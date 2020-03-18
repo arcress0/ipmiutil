@@ -1,0 +1,4 @@
+# The only GPL code in ipmiutil is md2.h, which is excluded
+# by default, so ignore unsafe link with openssl warning
+ipmiutil: possible-gpl-code-linked-with-openssl
+

@@ -1,0 +1,162 @@
+--- linux-2.6.0-test3orig/drivers/char/ipmi/ipmi_msghandler.c	2003-08-09 00:37:25.000000000 -0400
++++ linux-2.6.0-test3/drivers/char/ipmi/ipmi_msghandler.c	2003-08-14 09:40:49.000000000 -0400
+@@ -1813,7 +1813,9 @@
+ {
+ }
+ 
+-static void send_panic_events(void)
++#define EVENT_VALID  0x80
++
++static void send_panic_events(int evt, char *str)
+ {
+ 	struct ipmi_msg                   msg;
+ 	ipmi_smi_t                        intf;
+@@ -1837,12 +1839,17 @@
+ 	data[4] = 0x6f; /* Sensor specific, IPMI table 36-1 */
+ 	data[5] = 0xa1; /* Runtime stop OEM bytes 2 & 3. */
+ 
+-	/* These used to have the first three bytes of the panic string,
+-	   but not only is that not terribly useful, it's not available
+-	   any more. */
+-	data[3] = 0;
+-	data[6] = 0;
+-	data[7] = 0;
++	/* 
++	 * Add whatever breadcrumbs we can to indicate the type of panic. 
++	 * In kernel 2.6.0 an event code and panic string are passed in. 
++	 */
++	if (evt != 0) 
++		data[7] = EVENT_VALID | (evt & 0x7f);
++	if (str != NULL) {
++		data[3] = str[0];
++		data[6] = str[1];
++		if (evt == 0) data[7] = str[2];
++	}
+ 
+ 	smi_msg.done = dummy_smi_done_handler;
+ 	recv_msg.done = dummy_recv_done_handler;
+@@ -1891,7 +1898,7 @@
+ 	}
+ 
+ #ifdef CONFIG_IPMI_PANIC_EVENT
+-	send_panic_events();
++	send_panic_events(event,(char *)ptr);
+ #endif
+ 
+ 	return NOTIFY_DONE;
+--- linux-2.6.0-test3orig/arch/i386/kernel/traps.c	2003-08-09 00:33:15.000000000 -0400
++++ linux-2.6.0-test3/arch/i386/kernel/traps.c	2003-08-13 17:37:50.789828552 -0400
+@@ -288,6 +288,8 @@
+ 	return address;
+ }
+ 
++extern int last_trapnr; 
++
+ static inline void do_trap(int trapnr, int signr, char *str, int vm86,
+ 			   struct pt_regs * regs, long error_code, siginfo_t *info)
+ {
+@@ -312,8 +314,10 @@
+ 	}
+ 
+ 	kernel_trap: {
+-		if (!fixup_exception(regs))
++		if (!fixup_exception(regs)) {
++			last_trapnr = trapnr;
+ 			die(str, regs, error_code);
++		}
+ 		return;
+ 	}
+ 
+@@ -387,8 +391,10 @@
+ 	return;
+ 
+ gp_in_kernel:
+-	if (!fixup_exception(regs))
++	if (!fixup_exception(regs)) {
++		last_trapnr = 13;
+ 		die("general protection fault", regs, error_code);
++	}
+ }
+ 
+ static void mem_parity_error(unsigned char reason, struct pt_regs * regs)
+@@ -721,6 +727,7 @@
+ 					  error_code);
+ 			return;
+ 		}
++		last_trapnr = 19;
+ 		die_if_kernel("cache flush denied", regs, error_code);
+ 		current->thread.trap_no = 19;
+ 		current->thread.error_code = error_code;
+--- linux-2.6.0-test3orig/kernel/ksyms.c	2003-08-09 00:31:15.000000000 -0400
++++ linux-2.6.0-test3/kernel/ksyms.c	2003-08-13 17:39:00.000000000 -0400
+@@ -71,6 +71,7 @@
+ extern struct timezone sys_tz;
+ 
+ extern int panic_timeout;
++extern int last_trapnr;
+ 
+ /* process memory management */
+ EXPORT_SYMBOL(do_mmap_pgoff);
+@@ -504,6 +505,7 @@
+ EXPORT_SYMBOL(panic);
+ EXPORT_SYMBOL(panic_notifier_list);
+ EXPORT_SYMBOL(panic_timeout);
++EXPORT_SYMBOL(last_trapnr);
+ EXPORT_SYMBOL(sprintf);
+ EXPORT_SYMBOL(snprintf);
+ EXPORT_SYMBOL(sscanf);
+--- linux-2.6.0-test3orig/kernel/panic.c	2003-08-09 00:41:41.000000000 -0400
++++ linux-2.6.0-test3/kernel/panic.c	2003-08-13 17:38:49.000000000 -0400
+@@ -20,9 +20,15 @@
+ 
+ asmlinkage void sys_sync(void);	/* it's really int */
+ 
++/* values for panic event */
++#define EVENT_VALID  0x80
++#define PANIC_IN_INTERRUPT  0x40
++#define TRAP_INIT    0x80
++
+ int panic_timeout;
+ int panic_on_oops;
+ int tainted;
++int last_trapnr = TRAP_INIT;
+ 
+ struct notifier_block *panic_notifier_list;
+ 
+@@ -47,6 +53,7 @@
+ {
+ 	static char buf[1024];
+ 	va_list args;
++	int event = 0;
+ #if defined(CONFIG_ARCH_S390)
+         unsigned long caller = (unsigned long) __builtin_return_address(0);
+ #endif
+@@ -56,11 +63,16 @@
+ 	vsnprintf(buf, sizeof(buf), fmt, args);
+ 	va_end(args);
+ 	printk(KERN_EMERG "Kernel panic: %s\n",buf);
+-	if (in_interrupt())
++	if (last_trapnr != TRAP_INIT) {
++		/* should be <= 30 trapnr values, so packing in 0x3f is ok */
++		event = EVENT_VALID + (last_trapnr & 0x3f);
++	}
++	if (in_interrupt()) {
++		event |= PANIC_IN_INTERRUPT;  /*0x40*/
+ 		printk(KERN_EMERG "In interrupt handler - not syncing\n");
+-	else if (!current->pid)
++	} else if (!current->pid) 
+ 		printk(KERN_EMERG "In idle task - not syncing\n");
+-	else
++	else 
+ 		sys_sync();
+ 	bust_spinlocks(0);
+ 
+@@ -68,7 +80,7 @@
+ 	smp_send_stop();
+ #endif
+ 
+-       notifier_call_chain(&panic_notifier_list, 0, buf);
++       notifier_call_chain(&panic_notifier_list, event, buf);
+ 
+ 	if (panic_timeout > 0)
+ 	{

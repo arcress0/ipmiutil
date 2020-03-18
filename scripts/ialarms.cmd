@@ -1,0 +1,1 @@
+ipmiutil alarms %*

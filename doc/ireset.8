@@ -1,0 +1,118 @@
+.TH IRESET 8 "Version 1.5: 01 Jul 2011"
+.SH NAME
+ipmiutil_reset \- perform a hardware reset on the system
+.SH SYNOPSIS
+.B "ipmiutil reset [-bcdDefhijmnoprsuwxy -N node -U user -P/-R pswd -EFJTVY]"
+
+.SH DESCRIPTION
+.I ipmiutil reset
+is a program that uses IPMI commands to
+perform a hardware reset of the chassis, or boot to a specific
+device.
+This utility can use either the /dev/ipmi0 driver from OpenIPMI,
+the /dev/imb driver from Intel, the /dev/ipmikcs driver from valinux,
+direct user-space IOs, or the IPMI LAN interface if \-N.
+
+.SH OPTIONS
+Command line options are described below.
+.IP "-c"
+Power Cycle the system chassis
+.IP "-d"
+Power Down the system chassis
+.IP "-n"
+Send NMI to the system
+.IP "-u"
+Power Up the system chassis
+.IP "-r"
+Hard Reset the system chassis
+.IP "-D"
+Do a soft shutdown of the OS, and then power down.
+Note that remote soft shutdown (\-D \-N) for Intel S5000 baseboard requires
+ipmiutil getevt \-a running on the target server.
+.IP "-o"
+Do a soft shutdown of the OS, and then reset.
+Note that remote soft shutdown (\-o \-N) for Intel S5000 baseboard requires
+ipmiutil getevt \-a running on the target server.
+.IP "-k"
+Do a cold reset to restart the BMC firmware.
+.IP "-m 002000s"
+Perform these function for a specific MC (e.g. bus 00, sa 20, lun 00).
+The trailing character, if present, indicates SMI addressing if 's',
+or IPMB addressing if 'i' or not present.
+.IP "-b"
+Do a hard reset and reboot to the BIOS Setup menu, for this reboot only.
+.IP "-e"
+Do a hard reset to EFI, if IPMI EFI boot is enabled, for this reboot only.
+.IP "-f"
+Do a hard reset to Floppy/Removable, for this reboot only.
+.IP "-h"
+Do a hard reset to a Hard Disk, for this reboot only.
+.IP "-i"
+Set the boot Initiator mailbox string, usually for PXE use.
+The string must be less than 78 characters.
+.IP "-j"
+Set the IANA number used for the boot Initiator mailbox string.
+.IP "-p"
+Do a hard reset and network boot to PXE server, for this reboot only.
+.IP "-s"
+Do a hard reset and reboot to the Service/Diagnostic Partition, for this
+reboot only.  Reboots to the default if no service partition is configured.
+.IP "-v"
+Do a hard reset to DVD/CDROM Media, for this reboot only.
+.IP "-w"
+Wait for BMC ready after a reset before exiting the utility.
+.IP "-x"
+Causes extra debug messages to be displayed.
+.IP "-y"
+Yes, try to persist any boot options used [\-befhprsv].  This requires the IPMI
+firmware to ask the BIOS to change boot order settings, so it may not
+be supported by all BMC firmware vendors.
+.IP "-N nodename"
+Nodename or IP address of the remote target system.  If a nodename is
+specified, IPMI LAN interface is used.  Otherwise the local system
+management interface is used.
+.IP "-P/-R rmt_pswd"
+Remote password for the nodename given.  The default is a null password.
+.IP "-U rmt_user"
+Remote username for the nodename given.  The default is a null username.
+.IP "-E"
+Use the remote password from Environment variable IPMI_PASSWORD.
+.IP "-F drv_t"
+Force the driver type to one of the followng:
+imb, va, open, gnu, landesk, lan, lan2, lan2i, kcs, smb.
+Note that lan2i means lan2 with intelplus.
+The default is to detect any available driver type and use it.
+.IP "-J"
+Use the specified LanPlus cipher suite (0 thru 17): 0=none/none/none,
+1=sha1/none/none, 2=sha1/sha1/none, 3=sha1/sha1/cbc128, 4=sha1/sha1/xrc4_128,
+5=sha1/sha1/xrc4_40, 6=md5/none/none, ... 14=md5/md5/xrc4_40.
+Default is 3.
+.IP "-T"
+Use a specified IPMI LAN Authentication Type: 0=None, 1=MD2, 2=MD5, 4=Straight Password, 5=OEM.
+.IP "-V"
+Use a specified IPMI LAN privilege level. 1=Callback level, 2=User level, 3=Operator level, 4=Administrator level (default), 5=OEM level.
+.IP "-Y"
+Yes, do prompt the user for the IPMI LAN remote password.
+Alternatives for the password are \-E or \-P.
+
+
+.SH "SEE ALSO"
+ipmiutil(8) ialarms(8) iconfig(8) icmd(8) idiscover(8) ievents(8) ifru(8) igetevent(8) ihealth(8) ilan(8) isel(8) isensor(8) iserial(8) isol(8) iwdt(8)
+
+.SH WARNINGS
+See http://ipmiutil.sourceforge.net/ for the latest version of ipmiutil and any bug fix list.
+
+.SH COPYRIGHT
+Copyright (C) 2009  Kontron America, Inc.
+.PP
+See the file COPYING in the distribution for more details
+regarding redistribution.
+.PP
+This utility is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY.
+
+.SH AUTHOR
+.PP
+Andy Cress <arcress at users.sourceforge.net>
+.br
+

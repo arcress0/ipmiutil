@@ -1,0 +1,19 @@
+ipmitool/plugins/lanplus for ipmiutil
+
+lib/lanplus directory
+
+This contains the lanplus plugin source from the ipmitool project, 
+which supports IPMI LAN 2.0 RMCP+ protocol.  
+This is a slightly modified version from ipmitool-1.8.8.90 with changes
+to link better with ipmiutil and changes for WIN32.
+
+See http://ipmitool.sourceforge.net for the latest version of lanplus,
+then apply the iutil.diff patch to make it compatible with ipmiutil.
+
+This builds a lanplus library that is used by ipmiutil, along with 
+the crypto libraries from openssl (see openssl.org). 
+
+The util/ipmilanplus.c code in ipmiutil calls the lanplus routines,
+if the HAVE_LANPLUS compile flag is defined.
+
+

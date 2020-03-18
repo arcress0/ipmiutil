@@ -1,0 +1,2776 @@
+diff -urN linux/Documentation/Configure.help linux-emu/Documentation/Configure.help
+--- linux/Documentation/Configure.help	Fri Dec  6 09:12:27 2002
++++ linux-emu/Documentation/Configure.help	Fri Jan 10 11:24:14 2003
+@@ -26267,6 +26267,17 @@
+ CONFIG_IPMI_WATCHDOG
+   This enables the IPMI watchdog timer.
+ 
++Emulate Radisys IPMI driver
++CONFIG_IPMI_EMULATE_RADISYS
++  This enables emulation of the Radisys IPMI device driver.
++
++Emulate Intel IBM driver
++CONFIG_IPMI_EMULATE_IMB
++  This enables emulation of the Intel IMB device driver.  Note that you
++  MUST have the IPMI watchdog timer enabled to use this.  This code
++  uses some of the watchdog code, but the dependency is not enforced
++  by config.
++
+ #
+ # A couple of things I keep forgetting:
+ #   capitalize: AppleTalk, Ethernet, DOS, DMA, FAT, FTP, Internet,
+--- linux/drivers/char/Config.in	Fri Dec  6 09:12:38 2002
++++ linux-emu/drivers/char/Config.in	Fri Jan 10 11:24:14 2003
+@@ -195,6 +195,8 @@
+ dep_tristate '  Device interface for IPMI' CONFIG_IPMI_DEVICE_INTERFACE $CONFIG_IPMI_HANDLER
+ dep_tristate '  IPMI KCS handler' CONFIG_IPMI_KCS $CONFIG_IPMI_HANDLER
+ dep_tristate '  IPMI Watchdog Timer' CONFIG_IPMI_WATCHDOG $CONFIG_IPMI_HANDLER
++dep_tristate '  Emulate Radisys IPMI driver' CONFIG_IPMI_EMULATE_RADISYS $CONFIG_IPMI_HANDLER
++dep_tristate '  Emulate Intel IMB driver' CONFIG_IPMI_EMULATE_IMB $CONFIG_IPMI_WATCHDOG
+ 
+ mainmenu_option next_comment
+ comment 'Watchdog Cards'
+diff -urN linux/drivers/char/ipmi/Makefile linux-emu/drivers/char/ipmi/Makefile
+--- linux/drivers/char/ipmi/Makefile	Thu Aug 22 16:58:48 2002
++++ linux-emu/drivers/char/ipmi/Makefile	Fri Jan 10 11:24:14 2003
+@@ -13,6 +13,8 @@
+ obj-$(CONFIG_IPMI_DEVICE_INTERFACE) += ipmi_devintf.o
+ obj-$(CONFIG_IPMI_KCS) += ipmi_kcs_drv.o
+ obj-$(CONFIG_IPMI_WATCHDOG) += ipmi_watchdog.o
++obj-$(CONFIG_IPMI_EMULATE_RADISYS) += ipmi_radisys.o
++obj-$(CONFIG_IPMI_EMULATE_IMB) += ipmi_imb.o
+ 
+ include $(TOPDIR)/Rules.make
+ 
+diff -urN linux/drivers/char/ipmi/ipmi_imb.c linux-emu/drivers/char/ipmi/ipmi_imb.c
+--- linux/drivers/char/ipmi/ipmi_imb.c	Wed Dec 31 18:00:00 1969
++++ linux-emu/drivers/char/ipmi/ipmi_imb.c	Fri Jan 10 11:24:37 2003
+@@ -0,0 +1,744 @@
++/*
++ * ipmi_imb.c
++ *
++ * Intel IMB emulation for the IPMI interface.
++ *
++ * Author: MontaVista Software, Inc.
++ *         Corey Minyard <minyard@mvista.com>
++ *         source@mvista.com
++ *
++ * Copyright 2002 MontaVista Software Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License as published by the
++ *  Free Software Foundation; either version 2 of the License, or (at your
++ *  option) any later version.
++ *
++ *
++ *  THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
++ *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ *  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ *  OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ *  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ *  TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ *  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++#include <linux/config.h>
++#include <linux/module.h>
++#include <linux/errno.h>
++#include <asm/system.h>
++#include <linux/sched.h>
++#include <linux/poll.h>
++#include <linux/spinlock.h>
++#include <linux/slab.h>
++#include <linux/devfs_fs_kernel.h>
++#include <linux/ipmi.h>
++#include <linux/ipmi_imb.h>
++
++
++
++#define MAX_BUFFER_SIZE                 64
++#define BMC_SA				0x20
++
++struct priv_data
++{
++	/* This is for supporting the old Imb interface. */
++	ipmi_user_t       imb_user;
++	spinlock_t        imb_lock;
++
++	unsigned long     curr_msgid;
++
++	/* A list of responses in the queue. */
++	struct list_head  imb_waiting_rsps;
++
++	/* A list of things waiting for responses.  We wake them all up
++	   when a response comes in. */
++	wait_queue_head_t imb_waiting_rsp_rcvrs;
++
++	/* A list of commands that have come in. */
++	struct list_head  imb_waiting_cmds;
++
++	/* A list of thing waiting for commands.  We wake them all up
++	   when a command comes in. */
++	wait_queue_head_t imb_waiting_cmd_rcvrs;
++
++	/* The registered command receiver value.  This only allows someone
++	   with the "magic number" to issue commands. */
++	unsigned long     imb_cmd_receiver;
++
++	/* Is someone already waiting for a command?  The Imb driver
++	   only allows one waiter, this enforces that. */
++	int               imb_cmd_waiting;
++
++	/* A list of IPMI events waiting to be delivered.  (not that
++           the Imb driver calls incoming commands "events", this
++           variable is actual IPMI events, not incoming commands). */
++	struct list_head  imb_waiting_events;
++
++#define IMB_EVENT_QUEUE_LIMIT	16 /* Allow up to 16 events. */
++	/* The number of events in the event queue. */
++	unsigned int      imb_waiting_event_count;
++};
++
++static devfs_handle_t devfs_handle;
++
++
++/* We cheat and use a piece of the address as the timeout. */
++static long *imb_timeout(struct ipmi_recv_msg *msg)
++{
++	char *base = (char *) &(msg->addr);
++	base += sizeof(struct ipmi_ipmb_addr);
++	return (long *) base;
++}
++
++static void imb_msg_recv(struct ipmi_recv_msg *msg,
++			 void                 *data)
++{
++	struct priv_data *priv = data;
++	unsigned long    flags;
++
++	spin_lock_irqsave(&(priv->imb_lock), flags);
++	if (msg->recv_type == IPMI_RESPONSE_RECV_TYPE) {
++		*imb_timeout(msg) = 5000;
++		list_add_tail(&(msg->link), &(priv->imb_waiting_rsps));
++		wake_up_all(&(priv->imb_waiting_rsp_rcvrs));
++	} else if (msg->recv_type == IPMI_CMD_RECV_TYPE) {
++		*imb_timeout(msg) = 5000;
++		list_add_tail(&(msg->link), &(priv->imb_waiting_cmds));
++		wake_up_all(&(priv->imb_waiting_cmd_rcvrs));
++	} else if (msg->recv_type == IPMI_ASYNC_EVENT_RECV_TYPE) {
++		if (priv->imb_waiting_event_count > IMB_EVENT_QUEUE_LIMIT) {
++			ipmi_free_recv_msg(msg);
++		} else {
++			list_add_tail(&(msg->link),&(priv->imb_waiting_events));
++			(priv->imb_waiting_event_count)++;
++		}
++	} else {
++		ipmi_free_recv_msg(msg);
++	}
++	spin_unlock_irqrestore(&(priv->imb_lock), flags);
++}
++
++/* We emulate the event queue in the driver for the imb emulation. */
++static int imb_handle_event_request(struct priv_data     *priv,
++				    struct ipmi_recv_msg **rsp)
++{
++	struct list_head     *entry;
++	unsigned long        flags;
++	struct ipmi_recv_msg *msg = NULL;
++	int                  rv = 0;
++
++	spin_lock_irqsave(&(priv->imb_lock), flags);
++	if (list_empty(&(priv->imb_waiting_events))) {
++		/* Nothing in the event queue, just return an error. */
++		msg = ipmi_alloc_recv_msg();
++		if (msg == NULL) {
++			rv = -EAGAIN;
++			goto out_err;
++		}
++		msg->addr.addr_type = IPMI_SYSTEM_INTERFACE_ADDR_TYPE;
++		msg->addr.channel = IPMI_BMC_CHANNEL;
++		msg->msg.cmd = IPMI_READ_EVENT_MSG_BUFFER_CMD;
++		msg->msgid = 0;
++		msg->recv_type = IPMI_ASYNC_EVENT_RECV_TYPE;
++		msg->msg.netfn = IPMI_NETFN_APP_RESPONSE;
++		msg->msg.data = msg->msg_data;
++		msg->msg.data[0] = 0x80; /* Data not available. */
++		msg->msg.data_len = 1;
++	} else {
++		/* Pull an item from the event queue . */
++		entry = priv->imb_waiting_events.next;
++		list_del(entry);
++		msg = list_entry(entry, struct ipmi_recv_msg, link);
++		(priv->imb_waiting_event_count)--;
++	}
++
++	*rsp = msg;
++
++ out_err:
++	spin_unlock_irqrestore(&(priv->imb_lock), flags);
++	return rv;
++}
++
++static struct priv_data *ipmi_user;
++static unsigned int user_count = 0; /* How many users have this open. */
++static spinlock_t dev_lock = SPIN_LOCK_UNLOCKED;
++
++static int ipmi_imb_open(struct inode *inode, struct file *file)
++{
++	int rv;
++
++	if (user_count == 0) {
++		rv = ipmi_register_all_cmd_rcvr(ipmi_user->imb_user);
++		if (rv)	{
++			return rv;
++		}
++	}
++
++	file->private_data = ipmi_user;
++	spin_lock(&dev_lock);
++	if (user_count == 0)
++		ipmi_set_gets_events(ipmi_user->imb_user, 1);
++	user_count++;
++	spin_unlock(&dev_lock);
++
++	return 0;
++}
++
++static int ipmi_imb_release(struct inode *inode, struct file *file)
++{
++	spin_lock(&dev_lock);
++	user_count--;
++	if (user_count == 0) {
++		ipmi_set_gets_events(ipmi_user->imb_user, 0);
++		ipmi_unregister_all_cmd_rcvr(ipmi_user->imb_user);
++	}
++	spin_unlock(&dev_lock);
++	return 0;
++}
++
++static unsigned char
++ipmb_checksum(unsigned char *data, int size)
++{
++	unsigned char csum = 0;
++	
++	for (; size > 0; size--, data++)
++		csum += *data;
++
++	return -csum;
++}
++
++extern void ipmi_delayed_shutdown(long delay, int power_off);
++
++static int ipmi_imb_ioctl(struct inode  *inode,
++			  struct file   *file,
++			  unsigned int  cmd,
++			  unsigned long data)
++{
++	struct priv_data *priv = file->private_data;
++	int              rv = -EINVAL;
++	struct smi       smi;
++	unsigned long    flags;
++
++	if (copy_from_user((caddr_t)&smi, (caddr_t)data, sizeof(smi))) {
++		return -EFAULT;
++	}
++	
++	switch(cmd) {
++	case IOCTL_IMB_POLL_ASYNC:
++		/*
++		 * No-op for this, the low-level driver polls.
++		 */
++		break;
++
++	case IOCTL_IMB_GET_ASYNC_MSG:
++	{
++		unsigned char        resp[MAX_ASYNC_RESP_SIZE];
++		struct ipmi_recv_msg *msg = NULL;
++		ImbAsyncResponse     *pAsyncResp = (ImbAsyncResponse *) resp;
++		unsigned long        length = 0;
++			
++		if (smi.cbInBuffer < sizeof(ImbAsyncRequest))
++			return -EINVAL;
++		if (smi.cbOutBuffer < MIN_ASYNC_RESP_SIZE)
++			return -EINVAL;
++
++		spin_lock_irqsave(&(priv->imb_lock), flags);
++
++		if (list_empty(&(priv->imb_waiting_cmds))) {
++			/* No command waiting, just return an error. */
++			rv = IMB_NO_ASYNC_MSG;
++		} else {
++			struct list_head *entry;
++
++			/* Got a command, pull it out and handle it. */
++			entry = priv->imb_waiting_cmds.next;
++			list_del(entry);
++			msg = list_entry(entry, struct ipmi_recv_msg, link);
++			rv = STATUS_SUCCESS;
++		}
++		spin_unlock_irqrestore(&(priv->imb_lock), flags);
++
++		if (msg != NULL) {
++			struct ipmi_ipmb_addr *ipmb_addr;
++
++			ipmb_addr = (struct ipmi_ipmb_addr *) &(msg->addr);
++			pAsyncResp->thisSeq = msg->msgid;
++			pAsyncResp->data[0] = IPMI_NETFN_APP_REQUEST << 2;
++			pAsyncResp->data[1] = IPMI_SEND_MSG_CMD;
++			pAsyncResp->data[2] = 0;
++			pAsyncResp->data[3] = msg->addr.channel;
++			pAsyncResp->data[4] = ((msg->msg.netfn << 2)
++					     | 2);
++			pAsyncResp->data[5]
++				= ipmb_checksum(&(pAsyncResp->data[3]),
++						2);
++			pAsyncResp->data[6] = ipmb_addr->slave_addr;
++			pAsyncResp->data[7] = ((msg->msgid << 2)
++					     | ipmb_addr->lun);
++			pAsyncResp->data[8] = msg->msg.cmd;
++
++			memcpy(&(pAsyncResp->data[9]),
++			       &(msg->msg.data[0]),
++			       msg->msg.data_len);
++			
++			length = msg->msg.data_len + MIN_ASYNC_RESP_SIZE;
++
++			ipmi_free_recv_msg(msg);
++
++			if (copy_to_user(smi.lpvOutBuffer, pAsyncResp, length))
++			{
++				return -EFAULT;
++			}
++		}
++
++		if (copy_to_user(smi.lpcbBytesReturned,
++				 &length,
++				 sizeof(length)))
++		{
++			return -EFAULT;
++		}
++		rv = 0;
++		break;
++	}
++		
++	case IOCTL_IMB_SEND_MESSAGE:
++	{
++		unsigned char        imbReqBuffer[MAX_IMB_RESPONSE_SIZE + 8];
++		unsigned char        imbRespBuffer[MAX_IMB_RESPONSE_SIZE + 8];
++		ImbRequestBuffer     *pImbReq=(ImbRequestBuffer *)imbReqBuffer;
++		ImbResponseBuffer    *pImbResp=(ImbResponseBuffer*)imbRespBuffer;
++		struct ipmi_addr     addr;
++		struct ipmi_msg      msg;
++		unsigned long        msgid;
++		struct ipmi_recv_msg *rsp;
++		unsigned long        length;
++		wait_queue_t         wait;
++		struct list_head     *entry;
++
++
++		if ((smi.cbInBuffer < MIN_IMB_REQ_BUF_SIZE)
++		    || (smi.cbOutBuffer < MIN_IMB_RESP_BUF_SIZE))
++		{
++			return -EINVAL;
++		}
++
++		if (smi.cbInBuffer > (MAX_IMB_RESPONSE_SIZE + 8)) {
++			/* Input buffer is too large */
++			return -EINVAL;
++		}
++
++		if (copy_from_user(pImbReq, smi.lpvInBuffer, smi.cbInBuffer)) {
++			return -EFAULT;
++		}
++		if ((pImbReq->req.dataLength + MIN_IMB_REQ_BUF_SIZE)
++		    > smi.cbInBuffer)
++		{
++			return -EINVAL;
++		}
++		if (pImbReq->req.dataLength > MAX_BUFFER_SIZE) {
++			return -EINVAL;
++		}
++
++		if (pImbReq->req.rsSa == BMC_SA) {
++			struct ipmi_system_interface_addr *smi_addr
++				= (struct ipmi_system_interface_addr *) &addr;
++
++			if ((pImbReq->req.netFn
++			     == (IPMI_NETFN_APP_REQUEST << 2))
++			    && (pImbReq->req.cmd
++				== IPMI_READ_EVENT_MSG_BUFFER_CMD))
++			{
++				/* The driver gets event messages
++                                   automatically, so we emulate
++                                   this. */
++				rv = imb_handle_event_request(priv, &rsp);
++				goto copy_resp;
++			} else {
++				smi_addr->addr_type
++				    = IPMI_SYSTEM_INTERFACE_ADDR_TYPE;
++				smi_addr->channel = IPMI_BMC_CHANNEL;
++				smi_addr->lun = 0;
++			}
++		} else {
++			struct ipmi_ipmb_addr *ipmb_addr =
++				(struct ipmi_ipmb_addr *) &addr;
++			
++			ipmb_addr->addr_type = IPMI_IPMB_ADDR_TYPE;
++			ipmb_addr->slave_addr = pImbReq->req.rsSa;
++			ipmb_addr->lun = pImbReq->req.rsLun;
++			ipmb_addr->channel = 0;
++		}
++
++		if (pImbReq->flags & NO_RESPONSE_EXPECTED) {
++			spin_lock(&priv->imb_lock);
++			msgid = priv->curr_msgid;
++			(priv->curr_msgid)++;
++			spin_unlock(&priv->imb_lock);
++		} else {
++			msgid = 0;
++		}
++
++		msg.netfn = pImbReq->req.netFn;
++		msg.cmd = pImbReq->req.cmd;
++		msg.data = pImbReq->req.data;
++		msg.data_len = pImbReq->req.dataLength;
++		rv = ipmi_request(priv->imb_user,
++				  &addr,
++				  msgid,
++				  &msg,
++				  0);
++		if (rv) {
++			rv = IMB_SEND_REQUEST_FAILED;
++			goto copy_resp;
++		}
++
++		if (pImbReq->flags & NO_RESPONSE_EXPECTED)
++			goto no_response;
++
++		/* Now wait for the response to come back. */
++		spin_lock_irqsave(&(priv->imb_lock), flags);
++		init_waitqueue_entry(&wait, current);
++		add_wait_queue(&(priv->imb_waiting_rsp_rcvrs),
++			       &wait);
++		for (;;) {
++			/* Check to see if it's there. */
++			if (!list_empty(&(priv->imb_waiting_rsps))) {
++				entry = priv->imb_waiting_rsps.next;
++				list_del(entry);
++				rsp = list_entry(entry,
++						 struct ipmi_recv_msg,
++						 link);
++				if (rsp->msgid != msgid) {
++					ipmi_free_recv_msg(rsp);
++					rsp = NULL;
++				} else {
++					break;
++				}
++			}
++
++			set_current_state(TASK_INTERRUPTIBLE);
++			if (!signal_pending(current)) {
++				spin_unlock_irqrestore
++					(&(priv->imb_lock), flags);
++				schedule();
++				spin_lock_irqsave
++					(&(priv->imb_lock), flags);
++			} else {
++				rv = -ERESTARTSYS;
++				break;
++			}
++		}
++		remove_wait_queue(&(priv->imb_waiting_rsp_rcvrs),
++				  &wait);
++		spin_unlock_irqrestore(&(priv->imb_lock), flags);
++
++	copy_resp:
++		if (rsp != NULL) {
++			pImbResp->cCode = rsp->msg.data[0];
++			memcpy(pImbResp->data,
++			       rsp->msg.data+1,
++			       rsp->msg.data_len-1);
++			length = (rsp->msg.data_len - 1
++				  + MIN_IMB_RESP_BUF_SIZE);
++
++			if (copy_to_user(smi.lpvOutBuffer, pImbResp, length)) {
++				return -EFAULT;
++			}
++
++			if (copy_to_user(smi.lpcbBytesReturned,
++					 &length,
++					 sizeof(length)))
++			{
++				return -EFAULT;
++			}
++		}
++	no_response:
++		break;
++	}
++
++	case IOCTL_IMB_SHUTDOWN_CODE:
++	{
++		ShutdownCmdBuffer shutdownCmd;
++
++		if (copy_from_user(&shutdownCmd,
++				   smi.lpvInBuffer, 
++				   sizeof(ShutdownCmdBuffer)))
++		{
++			return -EFAULT;
++		}
++
++		if (smi.cbInBuffer < sizeof(ShutdownCmdBuffer))
++		{
++			return -EINVAL;
++		}
++
++		rv = 0;
++		switch (shutdownCmd.code) {
++		case SD_POWER_OFF:
++			ipmi_delayed_shutdown(shutdownCmd.delayTime / 10, 1);
++			break;
++
++		case SD_RESET:
++			ipmi_delayed_shutdown(shutdownCmd.delayTime / 10, 0);
++			break;
++
++		case SD_NO_ACTION:
++			break;
++
++		default:
++			rv = INVALID_ARGUMENTS;
++		}
++
++        }
++
++	case IOCTL_IMB_REGISTER_ASYNC_OBJ:
++		rv = STATUS_SUCCESS;
++		break;
++
++
++	case IOCTL_IMB_CHECK_EVENT:
++	{
++		wait_queue_t wait;
++
++		spin_lock_irqsave(&(priv->imb_lock), flags);
++		init_waitqueue_entry(&wait, current);
++		add_wait_queue(&(priv->imb_waiting_cmd_rcvrs),
++			       &wait);
++		while (!list_empty(&(priv->imb_waiting_cmds))) {
++			set_current_state(TASK_INTERRUPTIBLE);
++			if (!signal_pending(current)) {
++				spin_unlock_irqrestore
++					(&(priv->imb_lock), flags);
++				schedule();
++				spin_lock_irqsave
++					(&(priv->imb_lock), flags);
++			} else {
++				rv = -ERESTARTSYS;
++				break;
++			}
++		}
++		remove_wait_queue(&(priv->imb_waiting_cmd_rcvrs),
++				  &wait);
++		spin_unlock_irqrestore(&(priv->imb_lock), flags);
++		rv = 0;
++		break;
++	}
++	}
++
++	return rv;
++}
++
++static int ipmi_imb_mmap(struct file *file, struct vm_area_struct *vma)
++{
++    off_t offset = vma->vm_pgoff << PAGE_SHIFT;
++
++    if (offset < 0)
++	    return -EINVAL;
++
++    if (remap_page_range(vma->vm_start, offset, 
++			 vma->vm_end - vma->vm_start,
++			 vma->vm_page_prot))
++    {
++	    return -EAGAIN;
++    }
++
++    /*vma->vm_inode = what_goes_here; */
++
++    return 0;
++
++}
++
++
++static struct file_operations ipmi_fops = {
++	owner:   THIS_MODULE,
++	ioctl:   ipmi_imb_ioctl,
++	open:    ipmi_imb_open,
++	release: ipmi_imb_release,
++	mmap:    ipmi_imb_mmap
++};
++
++static struct timer_list ipmi_imb_timer;
++
++/* Call every 100 ms. */
++#define IPMI_TIMEOUT_TIME	100
++#define IPMI_TIMEOUT_JIFFIES	(IPMI_TIMEOUT_TIME/(1000/HZ))
++
++static volatile int stop_operation = 0;
++static volatile int timer_stopped = 0;
++
++static void ipmi_imb_timeout(unsigned long data)
++{
++	struct list_head     *entry, *entry2;
++	struct priv_data     *priv = (struct priv_data *) data;
++	int                  timeout_period = IPMI_TIMEOUT_TIME;
++	struct ipmi_recv_msg *msg;
++
++	if (stop_operation) {
++		timer_stopped = 1;
++		return;
++	}
++
++	/* Now time out any messages in the Imb message queue. */
++	spin_lock(&(priv->imb_lock));
++	list_for_each_safe(entry, entry2, &(priv->imb_waiting_rsps)) {
++		long *timeout;
++		msg = list_entry(entry, struct ipmi_recv_msg, link);
++		timeout = imb_timeout(msg);
++		*timeout -= timeout_period;
++		if ((*timeout) <= 0) {
++			list_del(entry);
++			ipmi_free_recv_msg(msg);
++		}
++	}
++	list_for_each_safe(entry, entry2, &(priv->imb_waiting_cmds)) {
++		long *timeout;
++		msg = list_entry(entry, struct ipmi_recv_msg, link);
++		timeout = imb_timeout(msg);
++		*timeout -= timeout_period;
++		if ((*timeout) <= 0) {
++			list_del(entry);
++			ipmi_free_recv_msg(msg);
++		}
++	}
++	spin_unlock(&priv->imb_lock);
++
++	ipmi_imb_timer.expires += IPMI_TIMEOUT_JIFFIES;
++	add_timer(&ipmi_imb_timer);
++}
++
++#define DEVICE_NAME     "imb"
++
++static int ipmi_imb_major = 0;
++MODULE_PARM(ipmi_imb_major, "i");
++
++static struct ipmi_user_hndl ipmi_hndlrs =
++{
++	ipmi_recv_hndl : imb_msg_recv
++};
++
++static int init_ipmi_imb(void)
++{
++	int rv;
++
++	if (ipmi_imb_major < 0)
++		return -EINVAL;
++
++	ipmi_user = kmalloc(sizeof(*ipmi_user), GFP_KERNEL);
++	if (!ipmi_user) {
++		return -ENOMEM;
++	}
++
++	/* Create the Imb interface user. */
++	spin_lock_init(&(ipmi_user->imb_lock));
++	INIT_LIST_HEAD(&(ipmi_user->imb_waiting_rsps));
++	init_waitqueue_head(&(ipmi_user->imb_waiting_rsp_rcvrs));
++	INIT_LIST_HEAD(&(ipmi_user->imb_waiting_cmds));
++	init_waitqueue_head(&(ipmi_user->imb_waiting_cmd_rcvrs));
++	ipmi_user->imb_cmd_waiting = 0;
++	INIT_LIST_HEAD(&(ipmi_user->imb_waiting_events));
++
++	rv = ipmi_create_user(0,
++			      &ipmi_hndlrs,
++			      ipmi_user,
++			      &(ipmi_user->imb_user));
++	if (rv) {
++		kfree(ipmi_user);
++		ipmi_user = NULL;
++		return rv;
++	}
++
++	rv = register_chrdev(ipmi_imb_major, DEVICE_NAME, &ipmi_fops);
++	if (rv < 0) 
++	{
++		kfree(ipmi_user);
++		ipmi_user = NULL;
++		printk(KERN_ERR "ipmi: can't get major %d\n",
++		       ipmi_imb_major);
++		return rv;
++	}
++
++	if (ipmi_imb_major == 0) 
++	{
++		ipmi_imb_major = rv;
++	}
++
++	devfs_handle = devfs_register(NULL, DEVICE_NAME, DEVFS_FL_NONE,
++				      ipmi_imb_major, 0,
++				      S_IFCHR | S_IRUSR | S_IWUSR,
++				      &ipmi_fops, NULL);
++
++	ipmi_imb_timer.data = (long) ipmi_user;
++	ipmi_imb_timer.function = ipmi_imb_timeout;
++	ipmi_imb_timer.expires = jiffies + IPMI_TIMEOUT_JIFFIES;
++	add_timer(&ipmi_imb_timer);
++
++	printk(KERN_INFO "ipmi_imb: driver initialized at char major %d\n",
++	       ipmi_imb_major);
++
++	return 0;
++}
++
++#ifdef MODULE
++static void free_recv_msg_list(struct list_head *q)
++{
++	struct list_head     *entry, *entry2;
++	struct ipmi_recv_msg *msg;
++
++	list_for_each_safe(entry, entry2, q) {
++		msg = list_entry(entry, struct ipmi_recv_msg, link);
++		list_del(entry);
++		ipmi_free_recv_msg(msg);
++	}
++}
++
++static void cleanup_ipmi_imb(void)
++{
++	devfs_unregister(devfs_handle);
++
++	/* Tell the timer to stop, then wait for it to stop.  This avoids
++	   problems with race conditions removing the timer here. */
++	stop_operation = 1;
++	while (!timer_stopped) {
++		schedule_timeout(1);
++	}
++
++	ipmi_destroy_user(ipmi_user->imb_user);
++
++	free_recv_msg_list(&(ipmi_user->imb_waiting_rsps));
++	free_recv_msg_list(&(ipmi_user->imb_waiting_cmds));
++	free_recv_msg_list(&(ipmi_user->imb_waiting_events));
++
++	kfree(ipmi_user);
++	ipmi_user = NULL;
++
++	unregister_chrdev(ipmi_imb_major, DEVICE_NAME);
++}
++module_exit(cleanup_ipmi_imb);
++#else
++static int __init ipmi_imb_setup (char *str)
++{
++	int x;
++
++	if (get_option (&str, &x)) {
++		/* ipmi=x sets the major number to x. */
++		ipmi_imb_major = x;
++	} else if (!strcmp(str, "off")) {
++		ipmi_imb_major = -1;
++	}
++
++	return 1;
++}
++__setup("ipmi_imb=", ipmi_imb_setup);
++#endif
++
++module_init(init_ipmi_imb);
++MODULE_LICENSE("GPL");
+diff -urN linux/drivers/char/ipmi/ipmi_radisys.c linux-emu/drivers/char/ipmi/ipmi_radisys.c
+--- linux/drivers/char/ipmi/ipmi_radisys.c	Wed Dec 31 18:00:00 1969
++++ linux-emu/drivers/char/ipmi/ipmi_radisys.c	Fri Jan 10 11:24:56 2003
+@@ -0,0 +1,834 @@
++/*
++ * ipmi_radisys.c
++ *
++ * Radisys emulation for the IPMI interface.
++ *
++ * Author: MontaVista Software, Inc.
++ *         Corey Minyard <minyard@mvista.com>
++ *         source@mvista.com
++ *
++ * Copyright 2002 MontaVista Software Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License as published by the
++ *  Free Software Foundation; either version 2 of the License, or (at your
++ *  option) any later version.
++ *
++ *
++ *  THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
++ *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ *  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ *  OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ *  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ *  TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ *  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++#include <linux/config.h>
++#include <linux/module.h>
++#include <linux/errno.h>
++#include <asm/system.h>
++#include <linux/sched.h>
++#include <linux/poll.h>
++#include <linux/spinlock.h>
++#include <linux/slab.h>
++#include <linux/devfs_fs_kernel.h>
++#include <linux/ipmi.h>
++#include <linux/ipmi_radisys.h>
++
++
++struct priv_data
++{
++	/* This is for supporting the old Radisys interface. */
++	ipmi_user_t       rs_user;
++	spinlock_t        rs_lock;
++
++	/* A list of responses in the queue. */
++	struct list_head  rs_waiting_rsps;
++
++	/* A list of things waiting for responses.  We wake them all up
++	   when a response comes in. */
++	wait_queue_head_t rs_waiting_rsp_rcvrs;
++
++	/* A list of commands that have come in. */
++	struct list_head  rs_waiting_cmds;
++
++	/* A list of thing waiting for commands.  We wake them all up
++	   when a command comes in. */
++	wait_queue_head_t rs_waiting_cmd_rcvrs;
++
++	/* The registered command receiver value.  This only allows someone
++	   with the "magic number" to issue commands. */
++	unsigned long     rs_cmd_receiver;
++
++	/* Is someone already waiting for a command?  The Radisys driver
++	   only allows one waiter, this enforces that. */
++	int               rs_cmd_waiting;
++
++	/* A list of IPMI events waiting to be delivered.  (not that
++           the Radisys driver calls incoming commands "events", this
++           variable is actual IPMI events, not incoming commands). */
++	struct list_head  rs_waiting_events;
++
++#define RS_EVENT_QUEUE_LIMIT	16 /* Allow up to 16 events. */
++	/* The number of events in the event queue. */
++	unsigned int      rs_waiting_event_count;
++};
++
++
++static devfs_handle_t devfs_handle;
++
++/* We cheat and use a piece of the address as the timeout. */
++static long *rs_timeout(struct ipmi_recv_msg *msg)
++{
++	char *base = (char *) &(msg->addr);
++	base += sizeof(struct ipmi_ipmb_addr);
++	return (long *) base;
++}
++
++static void rs_msg_recv(struct ipmi_recv_msg *msg,
++			void                 *data)
++{
++	struct priv_data *priv = data;
++	unsigned long    flags;
++
++	spin_lock_irqsave(&(priv->rs_lock), flags);
++	if (msg->recv_type == IPMI_RESPONSE_RECV_TYPE) {
++		*rs_timeout(msg) = 5000;
++		list_add_tail(&(msg->link), &(priv->rs_waiting_rsps));
++		wake_up_all(&(priv->rs_waiting_rsp_rcvrs));
++	} else if (msg->recv_type == IPMI_CMD_RECV_TYPE) {
++		*rs_timeout(msg) = 5000;
++		list_add_tail(&(msg->link), &(priv->rs_waiting_cmds));
++		wake_up_all(&(priv->rs_waiting_cmd_rcvrs));
++	} else if (msg->recv_type == IPMI_ASYNC_EVENT_RECV_TYPE) {
++		if (priv->rs_waiting_event_count > RS_EVENT_QUEUE_LIMIT) {
++			ipmi_free_recv_msg(msg);
++		} else {
++			list_add_tail(&(msg->link),&(priv->rs_waiting_events));
++			(priv->rs_waiting_event_count)++;
++		}
++	} else {
++		ipmi_free_recv_msg(msg);
++	}
++	spin_unlock_irqrestore(&(priv->rs_lock), flags);
++}
++
++/* We emulate the event queue in the driver for the Radisys emulation. */
++static int rs_handle_event_request(struct priv_data *priv)
++{
++	struct list_head     *entry;
++	unsigned long        flags;
++	struct ipmi_recv_msg *msg = NULL;
++	int                  rv = 0;
++
++	spin_lock_irqsave(&(priv->rs_lock), flags);
++	if (list_empty(&(priv->rs_waiting_events))) {
++		/* Nothing in the event queue, just return an error. */
++		msg = ipmi_alloc_recv_msg();
++		if (msg == NULL) {
++			rv = -EAGAIN;
++			goto out_err;
++		}
++		msg->addr.addr_type = IPMI_SYSTEM_INTERFACE_ADDR_TYPE;
++		msg->addr.channel = IPMI_BMC_CHANNEL;
++		msg->msg.cmd = IPMI_READ_EVENT_MSG_BUFFER_CMD;
++		msg->msgid = 0;
++		msg->recv_type = IPMI_ASYNC_EVENT_RECV_TYPE;
++		msg->msg.netfn = IPMI_NETFN_APP_RESPONSE;
++		msg->msg.data = msg->msg_data;
++		msg->msg.data[0] = 0x80; /* Data not available. */
++		msg->msg.data_len = 1;
++	} else {
++		/* Pull an item from the event queue . */
++		entry = priv->rs_waiting_events.next;
++		list_del(entry);
++		msg = list_entry(entry, struct ipmi_recv_msg, link);
++		(priv->rs_waiting_event_count)--;
++	}
++
++	/* Put the response into the list of waiting responses and
++           wake all the response waiters up. */
++	*rs_timeout(msg) = 5000;
++	list_add_tail(&(msg->link), &(priv->rs_waiting_rsps));
++	wake_up_all(&(priv->rs_waiting_rsp_rcvrs));
++
++ out_err:
++	spin_unlock_irqrestore(&(priv->rs_lock), flags);
++	return rv;
++}
++
++static struct ipmi_recv_msg *rs_find_in_list(struct list_head *q,
++					     unsigned char    slave_addr,
++					     unsigned char    lun,
++					     unsigned char    netfn,
++					     unsigned char    cmd,
++					     unsigned char    seq)
++{
++	struct list_head      *entry;
++	struct ipmi_recv_msg  *msg;
++	struct ipmi_addr      addr;
++	unsigned char         msg_seq;
++
++	if (slave_addr == 1) {
++		struct ipmi_system_interface_addr *smi_addr;
++		smi_addr = (struct ipmi_system_interface_addr *) &addr;
++		smi_addr->addr_type = IPMI_SYSTEM_INTERFACE_ADDR_TYPE;
++		smi_addr->lun = lun;
++		/* Slave address 1 means no matching sequence in the
++                   Radisys driver. */
++	} else {
++		struct ipmi_ipmb_addr *ipmb_addr;
++		ipmb_addr = (struct ipmi_ipmb_addr *) &addr;
++		ipmb_addr->addr_type = IPMI_IPMB_ADDR_TYPE;
++		ipmb_addr->slave_addr = slave_addr;
++		ipmb_addr->lun = lun;
++	}
++
++	list_for_each(entry, q) {
++		msg = list_entry(entry, struct ipmi_recv_msg, link);
++		if (msg->addr.channel == IPMI_BMC_CHANNEL)
++			msg_seq = 0;
++		else
++			msg_seq = msg->msgid;
++
++		/* We ignore the channel for these comparisons, since the
++		   Radisys driver seems to ignore it. */
++		addr.channel = msg->addr.channel;
++
++		if ((msg_seq == seq)
++		    && (msg->msg.cmd == cmd)
++		    && (msg->msg.netfn == (netfn >> 2))
++		    && ipmi_addr_equal(&addr, &(msg->addr)))
++		{
++			list_del(entry);
++			return msg;
++		}
++	}
++
++	return NULL;
++}
++
++static struct priv_data *ipmi_user;
++static unsigned int user_count = 0; /* How many users have this open. */
++static spinlock_t dev_lock = SPIN_LOCK_UNLOCKED;
++
++static int ipmi_open(struct inode *inode, struct file *file)
++{
++	file->private_data = ipmi_user;
++	spin_lock(&dev_lock);
++	if (user_count == 0)
++		ipmi_set_gets_events(ipmi_user->rs_user, 1);
++	user_count++;
++	spin_unlock(&dev_lock);
++
++	return 0;
++}
++
++static int ipmi_release(struct inode *inode, struct file *file)
++{
++	spin_lock(&dev_lock);
++	user_count--;
++	if (user_count == 0)
++		ipmi_set_gets_events(ipmi_user->rs_user, 0);
++	spin_unlock(&dev_lock);
++	return 0;
++}
++
++static unsigned char
++ipmb_checksum(unsigned char *data, int size)
++{
++	unsigned char csum = 0;
++	
++	for (; size > 0; size--, data++)
++		csum += *data;
++
++	return -csum;
++}
++
++static int ipmi_ioctl(struct inode  *inode,
++		      struct file   *file,
++		      unsigned int  cmd,
++		      unsigned long data)
++{
++	struct priv_data *priv = file->private_data;
++	int              rv = -EINVAL;
++
++	switch(cmd) {
++	case IOCTL_IPMI_RCV:   /* get ipmi message */
++	{
++		IPMI_MSGDESC         rsp;
++		struct ipmi_recv_msg *msg;
++		unsigned long        flags;
++		long                 timeout;
++		wait_queue_t         wait;
++
++		if (copy_from_user(&rsp, (void *) data, sizeof(rsp))) {
++			rv = -EFAULT;
++			break;
++		}
++
++		rv = 0;
++
++		spin_lock_irqsave(&(priv->rs_lock), flags);
++
++		msg = rs_find_in_list(&(priv->rs_waiting_rsps),
++				      rsp.Dest.uchSlave,
++				      rsp.Dest.uchLun,
++				      rsp.uchNetFn,
++				      rsp.uchCmd,
++				      rsp.uchSeq);
++		init_waitqueue_entry(&wait, current);
++		add_wait_queue(&(priv->rs_waiting_rsp_rcvrs),
++			       &wait);
++		timeout = 5000 / (1000 / HZ);
++		while (msg == NULL) {
++			set_current_state(TASK_INTERRUPTIBLE);
++			if (!signal_pending(current)) {
++				spin_unlock_irqrestore
++					(&(priv->rs_lock), flags);
++				timeout = schedule_timeout(timeout);
++				spin_lock_irqsave
++					(&(priv->rs_lock), flags);
++			} else {
++				rv = -ERESTARTSYS;
++				break;
++			}
++			if (timeout <= 0) {
++				rsp.uchComplete = IPMI_TIMEOUT_COMPLETION_CODE;
++				break;
++			} else {
++				msg = rs_find_in_list
++					(&(priv->rs_waiting_rsps),
++					 rsp.Dest.uchSlave,
++					 rsp.Dest.uchLun,
++					 rsp.uchNetFn,
++					 rsp.uchCmd,
++					 rsp.uchSeq);
++			}
++		}
++		remove_wait_queue(&(priv->rs_waiting_rsp_rcvrs),
++				  &wait);
++		spin_unlock_irqrestore(&(priv->rs_lock), flags);
++
++		if (msg != NULL) {
++			rsp.uchComplete = msg->msg.data[0];
++			/* The Radisys driver expects all the data to
++			   be there in the data, even the stuff we
++			   already have processed for it.  So make is
++			   so. */
++			if (msg->addr.channel == IPMI_BMC_CHANNEL) {
++				struct ipmi_system_interface_addr *smi_addr;
++
++				smi_addr = ((struct ipmi_system_interface_addr *)
++					    &(msg->addr));
++				memcpy(&(rsp.auchBuffer[2]),
++				       &(msg->msg.data[0]),
++				       msg->msg.data_len);
++				rsp.ulLength = msg->msg.data_len+2;
++				rsp.auchBuffer[0] = ((msg->msg.netfn << 2)
++						     | (smi_addr->lun));
++				rsp.auchBuffer[1] = msg->msg.cmd;
++			} else {
++				struct ipmi_ipmb_addr *ipmb_addr;
++
++				ipmb_addr = (struct ipmi_ipmb_addr *) &msg->addr;
++				memcpy(&(rsp.auchBuffer[9]),
++				       &(msg->msg.data[0]),
++				       msg->msg.data_len);
++				rsp.ulLength = msg->msg.data_len+10;
++				rsp.auchBuffer[0] = IPMI_NETFN_APP_REQUEST << 2;
++				rsp.auchBuffer[1] = IPMI_GET_MSG_CMD;
++				rsp.auchBuffer[2] = 0;
++				rsp.auchBuffer[3] = msg->addr.channel;
++				rsp.auchBuffer[4] = ((msg->msg.netfn << 2)
++						     | 2);
++				rsp.auchBuffer[5]
++					= ipmb_checksum(&(rsp.auchBuffer[3]),
++							2);
++				rsp.auchBuffer[6] = ipmb_addr->slave_addr;
++				rsp.auchBuffer[7] = ((msg->msgid << 2)
++						     | ipmb_addr->lun);
++				rsp.auchBuffer[8] = msg->msg.cmd;
++				rsp.auchBuffer[msg->msg.data_len+9]
++					= ipmb_checksum(&(rsp.auchBuffer[6]),
++							msg->msg.data_len+3);
++			}
++			ipmi_free_recv_msg(msg);
++		}
++
++		if (copy_to_user((void *) data, &rsp, sizeof(rsp))) {
++			rv = -EFAULT;
++			break;
++		}
++
++		break;
++	}
++     
++	case IOCTL_IPMI_SEND: /* send ipmi message */
++	{
++		IPMI_MSGDESC     req;
++		struct ipmi_addr addr;
++		struct ipmi_msg  msg;
++		unsigned char    source_address;
++		unsigned char    source_lun;
++		unsigned int     start_offset;
++
++		if (copy_from_user(&req, (void *) data, sizeof(req))) {
++			rv = -EFAULT;
++			break;
++		}
++
++		if (req.Dest.uchSlave == 1) {
++			struct ipmi_system_interface_addr *smi_addr
++				= (struct ipmi_system_interface_addr *) &addr;
++			if ((req.uchNetFn == (IPMI_NETFN_APP_REQUEST << 2))
++			    && (req.uchCmd == IPMI_READ_EVENT_MSG_BUFFER_CMD))
++			{
++				/* The driver gets event messages
++                                   automatically, so we emulate
++                                   this. */
++				rv = rs_handle_event_request(priv);
++				break;
++			}
++
++			smi_addr->addr_type = IPMI_SYSTEM_INTERFACE_ADDR_TYPE;
++			smi_addr->channel = IPMI_BMC_CHANNEL;
++			smi_addr->lun = req.uchNetFn & 0x3;
++			source_address = 0;
++			source_lun = 0;
++			start_offset = 2;
++		} else {
++			struct ipmi_ipmb_addr *ipmb_addr =
++				(struct ipmi_ipmb_addr *) &addr;
++			
++			ipmb_addr->addr_type = IPMI_IPMB_ADDR_TYPE;
++			ipmb_addr->channel = 0;
++			ipmb_addr->slave_addr = req.Dest.uchSlave;
++			ipmb_addr->lun = req.Dest.uchLun;
++			source_address = req.auchBuffer[6];
++			source_lun = req.auchBuffer[7] & 0x3;
++			start_offset = 9;
++			req.ulLength--; /* Remove the checksum the userland
++					   process adds. */
++		}
++
++		msg.netfn = req.uchNetFn >> 2;
++		msg.cmd = req.uchCmd;
++		msg.data = req.auchBuffer + start_offset;
++		msg.data_len = req.ulLength - start_offset;
++
++		rv = ipmi_request_with_source(priv->rs_user,
++					      &addr,
++					      req.uchSeq,
++					      &msg,
++					      0,
++					      source_address,
++					      source_lun);
++		if (rv)
++			req.uchComplete = IPMI_UNKNOWN_ERR_COMPLETION_CODE;
++		else
++			req.uchComplete = 0;
++		/* The Radisys driver does no error checking here. */
++		copy_to_user((void *) data, &req, sizeof(req));
++		rv = 0;
++		break;
++	}
++
++	case IOCTL_IPMI_EVENT:  /* get an incoming command.  Don't be
++                                   fooled by the name, these are
++                                   commands, not IPMI events. */
++	{
++		IPMI_MSGDESC         rsp;
++		struct ipmi_recv_msg *msg = NULL;
++		struct list_head     *entry;
++		unsigned long        flags;
++		long                 timeout;
++		unsigned long        receiver;
++		wait_queue_t         wait;
++
++		if (copy_from_user(&receiver, (void *) data, sizeof(receiver)))
++		{
++			rv = -EFAULT;
++			break;
++		}
++
++		if (copy_from_user(&timeout,
++				   (void *) (data + sizeof(receiver)),
++				   sizeof(timeout)))
++		{
++			rv = -EFAULT;
++			break;
++		}
++
++		rv = 0;
++
++		spin_lock_irqsave(&(priv->rs_lock), flags);
++
++		/* If someone else is already waiting, the Radisys driver
++		   returns EFAULT, so we do to. */
++		if (priv->rs_cmd_waiting) {
++			spin_unlock_irqrestore(&(priv->rs_lock), flags);
++			rv = -EFAULT;
++			break;
++		}
++
++		/* If the user thread doesn't match up, abort. */
++		if (receiver != priv->rs_cmd_receiver) {
++			spin_unlock_irqrestore(&(priv->rs_lock), flags);
++			rsp.uchComplete = IPMI_INVALID_CMD_COMPLETION_CODE;
++			break;
++		}
++
++		init_waitqueue_entry(&wait, current);
++		add_wait_queue(&(priv->rs_waiting_cmd_rcvrs),
++			       &wait);
++		priv->rs_cmd_waiting = 1;
++		timeout = timeout / (1000 / HZ); /* from ms to jiffies */
++		while ((timeout > 0) &&
++		       list_empty(&(priv->rs_waiting_cmds)))
++		{
++			set_current_state(TASK_INTERRUPTIBLE);
++			if (!signal_pending(current)) {
++				spin_unlock_irqrestore
++					(&(priv->rs_lock), flags);
++				timeout = schedule_timeout(timeout);
++				spin_lock_irqsave
++					(&(priv->rs_lock), flags);
++			} else {
++				rv = -ERESTARTSYS;
++				break;
++			}
++		}
++		if (!list_empty(&(priv->rs_waiting_cmds))) {
++			entry = priv->rs_waiting_cmds.next;
++			list_del(entry);
++			msg = list_entry(entry, struct ipmi_recv_msg, link);
++		}
++		priv->rs_cmd_waiting = 0;
++		remove_wait_queue(&(priv->rs_waiting_cmd_rcvrs),
++				  &wait);
++		spin_unlock_irqrestore(&(priv->rs_lock), flags);
++
++		if (msg != NULL) {
++			/* The Radisys driver expects all the data to
++			   be there in the data, even the stuff we
++			   already have processed for it.  So make is
++			   so. */
++			struct ipmi_ipmb_addr *ipmb_addr;
++
++			ipmb_addr = (struct ipmi_ipmb_addr *) &msg->addr;
++			memcpy(&(rsp.auchBuffer[9]),
++			       &(msg->msg.data[0]),
++			       msg->msg.data_len);
++			rsp.ulLength = msg->msg.data_len+9;
++			rsp.auchBuffer[0] = IPMI_NETFN_APP_REQUEST << 2;
++			rsp.auchBuffer[1] = IPMI_SEND_MSG_CMD;
++			rsp.auchBuffer[2] = 0;
++			rsp.auchBuffer[3] = msg->addr.channel;
++			rsp.auchBuffer[4] = ((msg->msg.netfn << 2)
++					     | 2);
++			rsp.auchBuffer[5]
++				= ipmb_checksum(&(rsp.auchBuffer[3]),
++						2);
++			rsp.auchBuffer[6] = ipmb_addr->slave_addr;
++			rsp.auchBuffer[7] = ((msg->msgid << 2)
++					     | ipmb_addr->lun);
++			rsp.auchBuffer[8] = msg->msg.cmd;
++
++			rsp.uchNetFn = (msg->msg.netfn << 2);
++			rsp.uchCmd = msg->msg.cmd;
++			rsp.uchSeq = msg->msgid;
++			rsp.ulLength = msg->msg.data_len + 9;
++			ipmi_free_recv_msg(msg);
++		} else if (!rv) {
++			/* On a time out, the Radisys driver returns
++			   IPMIRC_ERROR in the completion code, for
++			   some wierd reason. */
++			rsp.uchComplete = IPMI_UNKNOWN_ERR_COMPLETION_CODE;
++		}
++
++		/* The Radisys driver does no error checking here. */
++		copy_to_user((void *) data, &rsp, sizeof(rsp));
++		rv = 0;
++		break;
++	}
++    
++	case IOCTL_IPMI_REGISTER: /* register as event receiver */
++	{
++		unsigned long receiver;
++		unsigned char rc = LOWLRC_SUCCESS;
++		unsigned long flags;
++
++		if (copy_from_user(&receiver, (void *) data, sizeof(receiver)))
++		{
++			rv = -EFAULT;
++			break;
++		}
++
++		spin_lock_irqsave(&(priv->rs_lock), flags);
++		if (priv->rs_cmd_receiver == 0) {
++			rv = ipmi_register_all_cmd_rcvr(priv->rs_user);
++			if (rv)	{
++				priv->rs_cmd_receiver = receiver;
++			} else {
++				rc = LOWLRC_ERROR;
++			}
++		} else if (priv->rs_cmd_receiver != receiver) {
++			rc = LOWLRC_ERROR;
++		}
++		spin_unlock_irqrestore(&(priv->rs_lock), flags);
++
++		/* The Radisys driver does no error checking here. */
++		copy_to_user((void *) data, &rc, sizeof(rc));
++		rv = 0;
++		break;
++	}
++    
++	case IOCTL_IPMI_UNREGISTER:   /* unregister as event receiver */
++	{
++		unsigned long receiver;
++		unsigned char rc = LOWLRC_SUCCESS;
++		unsigned long flags;
++
++		if (copy_from_user(&receiver, (void *) data, sizeof(receiver)))
++		{
++			rv = -EFAULT;
++			break;
++		}
++
++		spin_lock_irqsave(&(priv->rs_lock), flags);
++		if (priv->rs_cmd_receiver == receiver) {
++			ipmi_unregister_all_cmd_rcvr(priv->rs_user);
++			priv->rs_cmd_receiver = 0;
++		} else {
++			rc = LOWLRC_ERROR;
++		}
++		spin_unlock_irqrestore(&(priv->rs_lock), flags);
++
++		/* The Radisys driver does no error checking here. */
++		copy_to_user((void *) data, &rc, sizeof(rc));
++		rv = 0;
++		break;
++	}
++
++	case IOCTL_IPMI_CLEAR: /* clear registered event receiver */
++	{
++		unsigned char rc = LOWLRC_SUCCESS;
++		unsigned long flags;
++
++		spin_lock_irqsave(&(priv->rs_lock), flags);
++		ipmi_unregister_all_cmd_rcvr(priv->rs_user);
++		priv->rs_cmd_receiver = 0;
++		spin_unlock_irqrestore(&(priv->rs_lock), flags);
++
++		/* The Radisys driver does no error checking here. */
++		copy_to_user((void *) data, &rc, sizeof(rc));
++		rv = 0;
++		break;
++	}
++	}
++
++	return rv;
++}
++
++static struct file_operations ipmi_fops = {
++	owner:   THIS_MODULE,
++	ioctl:   ipmi_ioctl,
++	open:    ipmi_open,
++	release: ipmi_release
++};
++
++static struct timer_list ipmi_radisys_timer;
++
++/* Call every 100 ms. */
++#define IPMI_TIMEOUT_TIME	100
++#define IPMI_TIMEOUT_JIFFIES	(IPMI_TIMEOUT_TIME/(1000/HZ))
++
++/* Request events from the queue every second.  Hopefully, in the
++   future, IPMI will add a way to know immediately if an event is
++   in the queue. */
++#define IPMI_REQUEST_EV_TIME	(1000 / (IPMI_TIMEOUT_TIME))
++
++static volatile int stop_operation = 0;
++static volatile int timer_stopped = 0;
++
++static void ipmi_radisys_timeout(unsigned long data)
++{
++	struct list_head     *entry, *entry2;
++	struct priv_data     *priv = (struct priv_data *) data;
++	int                  timeout_period = IPMI_TIMEOUT_TIME;
++	struct ipmi_recv_msg *msg;
++
++	if (stop_operation) {
++		timer_stopped = 1;
++		return;
++	}
++
++	/* Now time out any messages in the Radisys message queue. */
++	spin_lock(&(priv->rs_lock));
++	list_for_each_safe(entry, entry2, &(priv->rs_waiting_rsps)) {
++		long *timeout;
++		msg = list_entry(entry, struct ipmi_recv_msg, link);
++		timeout = rs_timeout(msg);
++		*timeout -= timeout_period;
++		if ((*timeout) <= 0) {
++			list_del(entry);
++			ipmi_free_recv_msg(msg);
++		}
++	}
++	list_for_each_safe(entry, entry2, &(priv->rs_waiting_cmds)) {
++		long *timeout;
++		msg = list_entry(entry, struct ipmi_recv_msg, link);
++		timeout = rs_timeout(msg);
++		*timeout -= timeout_period;
++		if ((*timeout) <= 0) {
++			list_del(entry);
++			ipmi_free_recv_msg(msg);
++		}
++	}
++	spin_unlock(&priv->rs_lock);
++
++	ipmi_radisys_timer.expires += IPMI_TIMEOUT_JIFFIES;
++	add_timer(&ipmi_radisys_timer);
++}
++
++#define DEVICE_NAME     "ipmi_radisys"
++
++static int ipmi_radisys_major = 0;
++MODULE_PARM(ipmi_radisys_major, "i");
++
++static struct ipmi_user_hndl ipmi_hndlrs =
++{
++	ipmi_recv_hndl : rs_msg_recv
++};
++
++
++static int init_ipmi_radisys(void)
++{
++	int rv;
++
++	if (ipmi_radisys_major < 0)
++		return -EINVAL;
++
++	ipmi_user = kmalloc(sizeof(*ipmi_user), GFP_KERNEL);
++	if (!ipmi_user) {
++		printk("ipmi_radisys: Unable to allocate memory\n");
++		return -ENOMEM;
++	}
++
++	/* Create the Radisys interface user. */
++	spin_lock_init(&(ipmi_user->rs_lock));
++	INIT_LIST_HEAD(&(ipmi_user->rs_waiting_rsps));
++	init_waitqueue_head(&(ipmi_user->rs_waiting_rsp_rcvrs));
++	INIT_LIST_HEAD(&(ipmi_user->rs_waiting_cmds));
++	init_waitqueue_head(&(ipmi_user->rs_waiting_cmd_rcvrs));
++	ipmi_user->rs_cmd_waiting = 0;
++	INIT_LIST_HEAD(&(ipmi_user->rs_waiting_events));
++
++	rv = ipmi_create_user(0,
++			      &ipmi_hndlrs,
++			      ipmi_user,
++			      &(ipmi_user->rs_user));
++	if (rv) {
++		printk("ipmi_radisys: Unable to create an IPMI user, probably"
++		       " no physical devices present.\n");
++		kfree(ipmi_user);
++		ipmi_user = NULL;
++		return rv;
++	}
++
++	rv = register_chrdev(ipmi_radisys_major, DEVICE_NAME, &ipmi_fops);
++	if (rv < 0) 
++	{
++		printk("ipmi_radisys: Unable to create the character device\n");
++		kfree(ipmi_user);
++		ipmi_user = NULL;
++		printk(KERN_ERR "ipmi: can't get major %d\n",
++		       ipmi_radisys_major);
++		return rv;
++	}
++
++	if (ipmi_radisys_major == 0) 
++	{
++		ipmi_radisys_major = rv;
++	}
++
++	devfs_handle = devfs_register(NULL, DEVICE_NAME, DEVFS_FL_NONE,
++				      ipmi_radisys_major, 0,
++				      S_IFCHR | S_IRUSR | S_IWUSR,
++				      &ipmi_fops, NULL);
++
++	ipmi_radisys_timer.data = (long) ipmi_user;
++	ipmi_radisys_timer.function = ipmi_radisys_timeout;
++	ipmi_radisys_timer.expires = jiffies + IPMI_TIMEOUT_JIFFIES;
++	add_timer(&ipmi_radisys_timer);
++
++	printk(KERN_INFO "ipmi_radisys: driver initialized at char major %d\n",
++	       ipmi_radisys_major);
++
++	return 0;
++}
++
++#ifdef MODULE
++static void free_recv_msg_list(struct list_head *q)
++{
++	struct list_head     *entry, *entry2;
++	struct ipmi_recv_msg *msg;
++
++	list_for_each_safe(entry, entry2, q) {
++		msg = list_entry(entry, struct ipmi_recv_msg, link);
++		list_del(entry);
++		ipmi_free_recv_msg(msg);
++	}
++}
++
++static void cleanup_ipmi_radisys(void)
++{
++	devfs_unregister(devfs_handle);
++
++	/* Tell the timer to stop, then wait for it to stop.  This avoids
++	   problems with race conditions removing the timer here. */
++	stop_operation = 1;
++	while (!timer_stopped) {
++		schedule_timeout(1);
++	}
++
++	ipmi_destroy_user(ipmi_user->rs_user);
++
++	free_recv_msg_list(&(ipmi_user->rs_waiting_rsps));
++	free_recv_msg_list(&(ipmi_user->rs_waiting_cmds));
++	free_recv_msg_list(&(ipmi_user->rs_waiting_events));
++
++	kfree(ipmi_user);
++	ipmi_user = NULL;
++
++	unregister_chrdev(ipmi_radisys_major, DEVICE_NAME);
++}
++module_exit(cleanup_ipmi_radisys);
++#else
++static int __init ipmi_radisys_setup (char *str)
++{
++	int x;
++
++	if (get_option (&str, &x)) {
++		/* ipmi=x sets the major number to x. */
++		ipmi_radisys_major = x;
++	} else if (!strcmp(str, "off")) {
++		ipmi_radisys_major = -1;
++	}
++
++	return 1;
++}
++__setup("ipmi_radisys=", ipmi_radisys_setup);
++#endif
++
++module_init(init_ipmi_radisys);
++MODULE_LICENSE("GPL");
+diff -urN linux/include/linux/autoconf.h linux-emu/include/linux/autoconf.h
+--- linux/include/linux/autoconf.h	Mon Jan 13 13:25:58 2003
++++ linux-emu/include/linux/autoconf.h	Wed Dec 31 18:00:00 1969
+@@ -1,862 +0,0 @@
+-/*
+- * Automatically generated C config: don't edit
+- */
+-#define AUTOCONF_INCLUDED
+-#define CONFIG_X86 1
+-#undef  CONFIG_SBUS
+-#define CONFIG_UID16 1
+-
+-/*
+- * Code maturity level options
+- */
+-#define CONFIG_EXPERIMENTAL 1
+-
+-/*
+- * Loadable module support
+- */
+-#define CONFIG_MODULES 1
+-#undef  CONFIG_MODVERSIONS
+-#define CONFIG_KMOD 1
+-
+-/*
+- * Processor type and features
+- */
+-#undef  CONFIG_M386
+-#undef  CONFIG_M486
+-#undef  CONFIG_M586
+-#undef  CONFIG_M586TSC
+-#undef  CONFIG_M586MMX
+-#undef  CONFIG_M686
+-#define CONFIG_MPENTIUMIII 1
+-#undef  CONFIG_MPENTIUM4
+-#undef  CONFIG_MK6
+-#undef  CONFIG_MK7
+-#undef  CONFIG_MELAN
+-#undef  CONFIG_MCRUSOE
+-#undef  CONFIG_MWINCHIPC6
+-#undef  CONFIG_MWINCHIP2
+-#undef  CONFIG_MWINCHIP3D
+-#undef  CONFIG_MCYRIXIII
+-#define CONFIG_X86_WP_WORKS_OK 1
+-#define CONFIG_X86_INVLPG 1
+-#define CONFIG_X86_CMPXCHG 1
+-#define CONFIG_X86_XADD 1
+-#define CONFIG_X86_BSWAP 1
+-#define CONFIG_X86_POPAD_OK 1
+-#undef  CONFIG_RWSEM_GENERIC_SPINLOCK
+-#define CONFIG_RWSEM_XCHGADD_ALGORITHM 1
+-#define CONFIG_X86_L1_CACHE_SHIFT (5)
+-#define CONFIG_X86_HAS_TSC 1
+-#define CONFIG_X86_GOOD_APIC 1
+-#define CONFIG_X86_PGE 1
+-#define CONFIG_X86_USE_PPRO_CHECKSUM 1
+-#define CONFIG_X86_F00F_WORKS_OK 1
+-#define CONFIG_X86_MCE 1
+-#undef  CONFIG_TOSHIBA
+-#undef  CONFIG_I8K
+-#undef  CONFIG_MICROCODE
+-#undef  CONFIG_X86_MSR
+-#undef  CONFIG_X86_CPUID
+-#define CONFIG_NOHIGHMEM 1
+-#undef  CONFIG_HIGHMEM4G
+-#undef  CONFIG_HIGHMEM64G
+-#undef  CONFIG_HIGHMEM
+-#undef  CONFIG_MATH_EMULATION
+-#undef  CONFIG_MTRR
+-#define CONFIG_SMP 1
+-#undef  CONFIG_MULTIQUAD
+-#undef  CONFIG_X86_TSC_DISABLE
+-#define CONFIG_X86_TSC 1
+-#define CONFIG_HAVE_DEC_LOCK 1
+-
+-/*
+- * General setup
+- */
+-#define CONFIG_NET 1
+-#define CONFIG_X86_IO_APIC 1
+-#define CONFIG_X86_LOCAL_APIC 1
+-#define CONFIG_PCI 1
+-#undef  CONFIG_PCI_GOBIOS
+-#undef  CONFIG_PCI_GODIRECT
+-#define CONFIG_PCI_GOANY 1
+-#define CONFIG_PCI_BIOS 1
+-#define CONFIG_PCI_DIRECT 1
+-#define CONFIG_ISA 1
+-#define CONFIG_PCI_NAMES 1
+-#undef  CONFIG_EISA
+-#undef  CONFIG_MCA
+-#define CONFIG_HOTPLUG 1
+-
+-/*
+- * PCMCIA/CardBus support
+- */
+-#define CONFIG_PCMCIA 1
+-#define CONFIG_CARDBUS 1
+-#undef  CONFIG_TCIC
+-#undef  CONFIG_I82092
+-#undef  CONFIG_I82365
+-
+-/*
+- * PCI Hotplug Support
+- */
+-#undef  CONFIG_HOTPLUG_PCI
+-#undef  CONFIG_HOTPLUG_PCI_COMPAQ
+-#undef  CONFIG_HOTPLUG_PCI_COMPAQ_NVRAM
+-#undef  CONFIG_HOTPLUG_PCI_IBM
+-#undef  CONFIG_HOTPLUG_PCI_ACPI
+-#define CONFIG_SYSVIPC 1
+-#undef  CONFIG_BSD_PROCESS_ACCT
+-#define CONFIG_SYSCTL 1
+-#define CONFIG_KCORE_ELF 1
+-#undef  CONFIG_KCORE_AOUT
+-#define CONFIG_BINFMT_AOUT 1
+-#define CONFIG_BINFMT_ELF 1
+-#define CONFIG_BINFMT_MISC 1
+-#define CONFIG_PM 1
+-#undef  CONFIG_ACPI
+-#undef  CONFIG_APM
+-
+-/*
+- * Memory Technology Devices (MTD)
+- */
+-#undef  CONFIG_MTD
+-
+-/*
+- * Parallel port support
+- */
+-#undef  CONFIG_PARPORT
+-
+-/*
+- * Plug and Play configuration
+- */
+-#define CONFIG_PNP 1
+-#define CONFIG_ISAPNP 1
+-
+-/*
+- * Block devices
+- */
+-#define CONFIG_BLK_DEV_FD 1
+-#undef  CONFIG_BLK_DEV_XD
+-#undef  CONFIG_PARIDE
+-#undef  CONFIG_BLK_CPQ_DA
+-#undef  CONFIG_BLK_CPQ_CISS_DA
+-#undef  CONFIG_CISS_SCSI_TAPE
+-#undef  CONFIG_BLK_DEV_DAC960
+-#undef  CONFIG_BLK_DEV_UMEM
+-#undef  CONFIG_BLK_DEV_LOOP
+-#undef  CONFIG_BLK_DEV_NBD
+-#define CONFIG_BLK_DEV_RAM 1
+-#define CONFIG_BLK_DEV_RAM_SIZE (4096)
+-#define CONFIG_BLK_DEV_INITRD 1
+-#undef  CONFIG_BLK_STATS
+-
+-/*
+- * Multi-device support (RAID and LVM)
+- */
+-#undef  CONFIG_MD
+-#undef  CONFIG_BLK_DEV_MD
+-#undef  CONFIG_MD_LINEAR
+-#undef  CONFIG_MD_RAID0
+-#undef  CONFIG_MD_RAID1
+-#undef  CONFIG_MD_RAID5
+-#undef  CONFIG_MD_MULTIPATH
+-#undef  CONFIG_BLK_DEV_LVM
+-
+-/*
+- * Networking options
+- */
+-#define CONFIG_PACKET 1
+-#undef  CONFIG_PACKET_MMAP
+-#undef  CONFIG_NETLINK_DEV
+-#undef  CONFIG_NETFILTER
+-#undef  CONFIG_FILTER
+-#define CONFIG_UNIX 1
+-#define CONFIG_INET 1
+-#define CONFIG_IP_MULTICAST 1
+-#undef  CONFIG_IP_ADVANCED_ROUTER
+-#define CONFIG_IP_PNP 1
+-#define CONFIG_IP_PNP_DHCP 1
+-#undef  CONFIG_IP_PNP_BOOTP
+-#undef  CONFIG_IP_PNP_RARP
+-#undef  CONFIG_NET_IPIP
+-#undef  CONFIG_NET_IPGRE
+-#undef  CONFIG_IP_MROUTE
+-#undef  CONFIG_ARPD
+-#undef  CONFIG_INET_ECN
+-#undef  CONFIG_SYN_COOKIES
+-#undef  CONFIG_IPV6
+-#undef  CONFIG_KHTTPD
+-#undef  CONFIG_ATM
+-#undef  CONFIG_VLAN_8021Q
+-
+-/*
+- *  
+- */
+-#undef  CONFIG_IPX
+-#undef  CONFIG_ATALK
+-
+-/*
+- * Appletalk devices
+- */
+-#undef  CONFIG_DEV_APPLETALK
+-#undef  CONFIG_DECNET
+-#undef  CONFIG_BRIDGE
+-#undef  CONFIG_X25
+-#undef  CONFIG_LAPB
+-#undef  CONFIG_LLC
+-#undef  CONFIG_NET_DIVERT
+-#undef  CONFIG_ECONET
+-#undef  CONFIG_WAN_ROUTER
+-#undef  CONFIG_NET_FASTROUTE
+-#undef  CONFIG_NET_HW_FLOWCONTROL
+-
+-/*
+- * QoS and/or fair queueing
+- */
+-#undef  CONFIG_NET_SCHED
+-
+-/*
+- * Network testing
+- */
+-#undef  CONFIG_NET_PKTGEN
+-
+-/*
+- * Telephony Support
+- */
+-#undef  CONFIG_PHONE
+-#undef  CONFIG_PHONE_IXJ
+-#undef  CONFIG_PHONE_IXJ_PCMCIA
+-
+-/*
+- * ATA/IDE/MFM/RLL support
+- */
+-#define CONFIG_IDE 1
+-
+-/*
+- * IDE, ATA and ATAPI Block devices
+- */
+-#define CONFIG_BLK_DEV_IDE 1
+-
+-/*
+- * Please see Documentation/ide.txt for help/info on IDE drives
+- */
+-#undef  CONFIG_BLK_DEV_HD_IDE
+-#undef  CONFIG_BLK_DEV_HD
+-#define CONFIG_BLK_DEV_IDEDISK 1
+-#define CONFIG_IDEDISK_MULTI_MODE 1
+-#undef  CONFIG_IDEDISK_STROKE
+-#undef  CONFIG_BLK_DEV_IDEDISK_VENDOR
+-#undef  CONFIG_BLK_DEV_IDEDISK_FUJITSU
+-#undef  CONFIG_BLK_DEV_IDEDISK_IBM
+-#undef  CONFIG_BLK_DEV_IDEDISK_MAXTOR
+-#undef  CONFIG_BLK_DEV_IDEDISK_QUANTUM
+-#undef  CONFIG_BLK_DEV_IDEDISK_SEAGATE
+-#undef  CONFIG_BLK_DEV_IDEDISK_WD
+-#undef  CONFIG_BLK_DEV_COMMERIAL
+-#undef  CONFIG_BLK_DEV_TIVO
+-#undef  CONFIG_BLK_DEV_IDECS
+-#define CONFIG_BLK_DEV_IDECD 1
+-#undef  CONFIG_BLK_DEV_IDETAPE
+-#undef  CONFIG_BLK_DEV_IDEFLOPPY
+-#undef  CONFIG_BLK_DEV_IDESCSI
+-#undef  CONFIG_IDE_TASK_IOCTL
+-
+-/*
+- * IDE chipset support/bugfixes
+- */
+-#define CONFIG_BLK_DEV_CMD640 1
+-#undef  CONFIG_BLK_DEV_CMD640_ENHANCED
+-#undef  CONFIG_BLK_DEV_ISAPNP
+-#define CONFIG_BLK_DEV_RZ1000 1
+-#define CONFIG_BLK_DEV_IDEPCI 1
+-#define CONFIG_IDEPCI_SHARE_IRQ 1
+-#define CONFIG_BLK_DEV_IDEDMA_PCI 1
+-#undef  CONFIG_BLK_DEV_OFFBOARD
+-#undef  CONFIG_BLK_DEV_IDEDMA_FORCED
+-#define CONFIG_IDEDMA_PCI_AUTO 1
+-#undef  CONFIG_IDEDMA_ONLYDISK
+-#define CONFIG_BLK_DEV_IDEDMA 1
+-#undef  CONFIG_IDEDMA_PCI_WIP
+-#undef  CONFIG_BLK_DEV_IDEDMA_TIMEOUT
+-#undef  CONFIG_IDEDMA_NEW_DRIVE_LISTINGS
+-#define CONFIG_BLK_DEV_ADMA 1
+-#undef  CONFIG_BLK_DEV_AEC62XX
+-#undef  CONFIG_AEC62XX_TUNING
+-#undef  CONFIG_BLK_DEV_ALI15X3
+-#undef  CONFIG_WDC_ALI15X3
+-#undef  CONFIG_BLK_DEV_AMD74XX
+-#undef  CONFIG_AMD74XX_OVERRIDE
+-#undef  CONFIG_BLK_DEV_CMD64X
+-#undef  CONFIG_BLK_DEV_CMD680
+-#undef  CONFIG_BLK_DEV_CY82C693
+-#undef  CONFIG_BLK_DEV_CS5530
+-#undef  CONFIG_BLK_DEV_HPT34X
+-#undef  CONFIG_HPT34X_AUTODMA
+-#undef  CONFIG_BLK_DEV_HPT366
+-#define CONFIG_BLK_DEV_PIIX 1
+-#define CONFIG_PIIX_TUNING 1
+-#undef  CONFIG_BLK_DEV_NS87415
+-#undef  CONFIG_BLK_DEV_OPTI621
+-#undef  CONFIG_BLK_DEV_PDC202XX
+-#undef  CONFIG_PDC202XX_BURST
+-#undef  CONFIG_PDC202XX_FORCE
+-#undef  CONFIG_BLK_DEV_SVWKS
+-#undef  CONFIG_BLK_DEV_SIS5513
+-#undef  CONFIG_BLK_DEV_SLC90E66
+-#undef  CONFIG_BLK_DEV_TRM290
+-#undef  CONFIG_BLK_DEV_VIA82CXXX
+-#undef  CONFIG_IDE_CHIPSETS
+-#define CONFIG_IDEDMA_AUTO 1
+-#undef  CONFIG_IDEDMA_IVB
+-#undef  CONFIG_DMA_NONPCI
+-#define CONFIG_BLK_DEV_IDE_MODES 1
+-#undef  CONFIG_BLK_DEV_ATARAID
+-#undef  CONFIG_BLK_DEV_ATARAID_PDC
+-#undef  CONFIG_BLK_DEV_ATARAID_HPT
+-
+-/*
+- * SCSI support
+- */
+-#undef  CONFIG_SCSI
+-
+-/*
+- * Fusion MPT device support
+- */
+-#undef  CONFIG_FUSION
+-#undef  CONFIG_FUSION_BOOT
+-#undef  CONFIG_FUSION_ISENSE
+-#undef  CONFIG_FUSION_CTL
+-#undef  CONFIG_FUSION_LAN
+-
+-/*
+- * IEEE 1394 (FireWire) support (EXPERIMENTAL)
+- */
+-#undef  CONFIG_IEEE1394
+-
+-/*
+- * I2O device support
+- */
+-#undef  CONFIG_I2O
+-#undef  CONFIG_I2O_PCI
+-#undef  CONFIG_I2O_BLOCK
+-#undef  CONFIG_I2O_LAN
+-#undef  CONFIG_I2O_SCSI
+-#undef  CONFIG_I2O_PROC
+-
+-/*
+- * Network device support
+- */
+-#define CONFIG_NETDEVICES 1
+-
+-/*
+- * ARCnet devices
+- */
+-#undef  CONFIG_ARCNET
+-#undef  CONFIG_DUMMY
+-#define CONFIG_DUMMY_MODULE 1
+-#undef  CONFIG_BONDING
+-#undef  CONFIG_EQUALIZER
+-#undef  CONFIG_TUN
+-#undef  CONFIG_ETHERTAP
+-#undef  CONFIG_NET_SB1000
+-
+-/*
+- * Ethernet (10 or 100Mbit)
+- */
+-#define CONFIG_NET_ETHERNET 1
+-#undef  CONFIG_SUNLANCE
+-#undef  CONFIG_HAPPYMEAL
+-#undef  CONFIG_SUNBMAC
+-#undef  CONFIG_SUNQE
+-#undef  CONFIG_SUNGEM
+-#undef  CONFIG_NET_VENDOR_3COM
+-#undef  CONFIG_LANCE
+-#undef  CONFIG_NET_VENDOR_SMC
+-#undef  CONFIG_NET_VENDOR_RACAL
+-#undef  CONFIG_AT1700
+-#undef  CONFIG_DEPCA
+-#undef  CONFIG_HP100
+-#undef  CONFIG_NET_ISA
+-#define CONFIG_NET_PCI 1
+-#undef  CONFIG_PCNET32
+-#undef  CONFIG_ADAPTEC_STARFIRE
+-#undef  CONFIG_AC3200
+-#undef  CONFIG_APRICOT
+-#undef  CONFIG_CS89x0
+-#undef  CONFIG_TULIP
+-#undef  CONFIG_DE4X5
+-#undef  CONFIG_DGRS
+-#undef  CONFIG_DM9102
+-#define CONFIG_EEPRO100 1
+-#undef  CONFIG_E100
+-#undef  CONFIG_LNE390
+-#undef  CONFIG_FEALNX
+-#undef  CONFIG_NATSEMI
+-#undef  CONFIG_NE2K_PCI
+-#undef  CONFIG_NE3210
+-#undef  CONFIG_ES3210
+-#undef  CONFIG_8139CP
+-#undef  CONFIG_8139TOO
+-#undef  CONFIG_8139TOO_PIO
+-#undef  CONFIG_8139TOO_TUNE_TWISTER
+-#undef  CONFIG_8139TOO_8129
+-#undef  CONFIG_8139_OLD_RX_RESET
+-#undef  CONFIG_SIS900
+-#undef  CONFIG_EPIC100
+-#undef  CONFIG_SUNDANCE
+-#undef  CONFIG_SUNDANCE_MMIO
+-#undef  CONFIG_TLAN
+-#undef  CONFIG_TC35815
+-#undef  CONFIG_VIA_RHINE
+-#undef  CONFIG_VIA_RHINE_MMIO
+-#undef  CONFIG_WINBOND_840
+-#undef  CONFIG_NET_POCKET
+-
+-/*
+- * Ethernet (1000 Mbit)
+- */
+-#undef  CONFIG_ACENIC
+-#undef  CONFIG_DL2K
+-#undef  CONFIG_E1000
+-#undef  CONFIG_MYRI_SBUS
+-#undef  CONFIG_NS83820
+-#undef  CONFIG_HAMACHI
+-#undef  CONFIG_YELLOWFIN
+-#undef  CONFIG_SK98LIN
+-#undef  CONFIG_TIGON3
+-#undef  CONFIG_FDDI
+-#undef  CONFIG_HIPPI
+-#undef  CONFIG_PLIP
+-#undef  CONFIG_PPP
+-#undef  CONFIG_SLIP
+-
+-/*
+- * Wireless LAN (non-hamradio)
+- */
+-#undef  CONFIG_NET_RADIO
+-
+-/*
+- * Token Ring devices
+- */
+-#undef  CONFIG_TR
+-#undef  CONFIG_NET_FC
+-#undef  CONFIG_RCPCI
+-#undef  CONFIG_SHAPER
+-
+-/*
+- * Wan interfaces
+- */
+-#undef  CONFIG_WAN
+-
+-/*
+- * PCMCIA network device support
+- */
+-#define CONFIG_NET_PCMCIA 1
+-#undef  CONFIG_PCMCIA_3C589
+-#undef  CONFIG_PCMCIA_3C574
+-#undef  CONFIG_PCMCIA_FMVJ18X
+-#define CONFIG_PCMCIA_PCNET 1
+-#undef  CONFIG_PCMCIA_AXNET
+-#undef  CONFIG_PCMCIA_NMCLAN
+-#undef  CONFIG_PCMCIA_SMC91C92
+-#undef  CONFIG_PCMCIA_XIRC2PS
+-#undef  CONFIG_ARCNET_COM20020_CS
+-#undef  CONFIG_PCMCIA_IBMTR
+-#undef  CONFIG_PCMCIA_XIRCOM
+-#undef  CONFIG_PCMCIA_XIRTULIP
+-#define CONFIG_NET_PCMCIA_RADIO 1
+-#define CONFIG_PCMCIA_RAYCS 1
+-#undef  CONFIG_PCMCIA_NETWAVE
+-#undef  CONFIG_PCMCIA_WAVELAN
+-#undef  CONFIG_AIRONET4500_CS
+-
+-/*
+- * Amateur Radio support
+- */
+-#undef  CONFIG_HAMRADIO
+-
+-/*
+- * IrDA (infrared) support
+- */
+-#undef  CONFIG_IRDA
+-
+-/*
+- * ISDN subsystem
+- */
+-#undef  CONFIG_ISDN
+-
+-/*
+- * Old CD-ROM drivers (not SCSI, not IDE)
+- */
+-#undef  CONFIG_CD_NO_IDESCSI
+-
+-/*
+- * Input core support
+- */
+-#undef  CONFIG_INPUT
+-#undef  CONFIG_INPUT_KEYBDEV
+-#undef  CONFIG_INPUT_MOUSEDEV
+-#undef  CONFIG_INPUT_JOYDEV
+-#undef  CONFIG_INPUT_EVDEV
+-
+-/*
+- * Character devices
+- */
+-#define CONFIG_VT 1
+-#define CONFIG_VT_CONSOLE 1
+-#define CONFIG_SERIAL 1
+-#define CONFIG_SERIAL_CONSOLE 1
+-#undef  CONFIG_SERIAL_EXTENDED
+-#undef  CONFIG_SERIAL_NONSTANDARD
+-#define CONFIG_UNIX98_PTYS 1
+-#define CONFIG_UNIX98_PTY_COUNT (256)
+-
+-/*
+- * I2C support
+- */
+-#undef  CONFIG_I2C
+-
+-/*
+- * Mice
+- */
+-#undef  CONFIG_BUSMOUSE
+-#define CONFIG_MOUSE 1
+-#define CONFIG_PSMOUSE 1
+-#undef  CONFIG_82C710_MOUSE
+-#undef  CONFIG_PC110_PAD
+-#undef  CONFIG_MK712_MOUSE
+-
+-/*
+- * Joysticks
+- */
+-#undef  CONFIG_INPUT_GAMEPORT
+-
+-/*
+- * Input core support is needed for gameports
+- */
+-
+-/*
+- * Input core support is needed for joysticks
+- */
+-#undef  CONFIG_QIC02_TAPE
+-#undef  CONFIG_IPMI_HANDLER
+-#define CONFIG_IPMI_HANDLER_MODULE 1
+-#define CONFIG_IPMI_PANIC_EVENT 1
+-#undef  CONFIG_IPMI_DEVICE_INTERFACE
+-#define CONFIG_IPMI_DEVICE_INTERFACE_MODULE 1
+-#undef  CONFIG_IPMI_KCS
+-#define CONFIG_IPMI_KCS_MODULE 1
+-#undef  CONFIG_IPMI_WATCHDOG
+-#define CONFIG_IPMI_WATCHDOG_MODULE 1
+-
+-/*
+- * Watchdog Cards
+- */
+-#undef  CONFIG_WATCHDOG
+-#undef  CONFIG_AMD_RNG
+-#undef  CONFIG_INTEL_RNG
+-#undef  CONFIG_AMD_PM768
+-#undef  CONFIG_NVRAM
+-#undef  CONFIG_RTC
+-#undef  CONFIG_DTLK
+-#undef  CONFIG_R3964
+-#undef  CONFIG_APPLICOM
+-#undef  CONFIG_SONYPI
+-
+-/*
+- * Ftape, the floppy tape device driver
+- */
+-#undef  CONFIG_FTAPE
+-#define CONFIG_AGP 1
+-#define CONFIG_AGP_INTEL 1
+-#define CONFIG_AGP_I810 1
+-#define CONFIG_AGP_VIA 1
+-#define CONFIG_AGP_AMD 1
+-#undef  CONFIG_AGP_AMD_8151
+-#define CONFIG_AGP_SIS 1
+-#define CONFIG_AGP_ALI 1
+-#undef  CONFIG_AGP_SWORKS
+-#define CONFIG_DRM 1
+-#undef  CONFIG_DRM_OLD
+-
+-/*
+- * DRM 4.1 drivers
+- */
+-#define CONFIG_DRM_NEW 1
+-#define CONFIG_DRM_TDFX 1
+-#undef  CONFIG_DRM_R128
+-#define CONFIG_DRM_RADEON 1
+-#undef  CONFIG_DRM_I810
+-#undef  CONFIG_DRM_I810_XFREE_41
+-#undef  CONFIG_DRM_I830
+-#undef  CONFIG_DRM_MGA
+-#undef  CONFIG_DRM_SIS
+-
+-/*
+- * PCMCIA character devices
+- */
+-#undef  CONFIG_PCMCIA_SERIAL_CS
+-#undef  CONFIG_SYNCLINK_CS
+-#undef  CONFIG_MWAVE
+-
+-/*
+- * Multimedia devices
+- */
+-#undef  CONFIG_VIDEO_DEV
+-
+-/*
+- * File systems
+- */
+-#undef  CONFIG_QUOTA
+-#undef  CONFIG_AUTOFS_FS
+-#define CONFIG_AUTOFS4_FS 1
+-#undef  CONFIG_REISERFS_FS
+-#undef  CONFIG_REISERFS_CHECK
+-#undef  CONFIG_REISERFS_PROC_INFO
+-#undef  CONFIG_ADFS_FS
+-#undef  CONFIG_ADFS_FS_RW
+-#undef  CONFIG_AFFS_FS
+-#undef  CONFIG_HFS_FS
+-#undef  CONFIG_BEFS_FS
+-#undef  CONFIG_BEFS_DEBUG
+-#undef  CONFIG_BFS_FS
+-#undef  CONFIG_EXT3_FS
+-#undef  CONFIG_JBD
+-#undef  CONFIG_JBD_DEBUG
+-#undef  CONFIG_FAT_FS
+-#undef  CONFIG_MSDOS_FS
+-#undef  CONFIG_UMSDOS_FS
+-#undef  CONFIG_VFAT_FS
+-#undef  CONFIG_EFS_FS
+-#undef  CONFIG_JFFS_FS
+-#undef  CONFIG_JFFS2_FS
+-#undef  CONFIG_CRAMFS
+-#define CONFIG_TMPFS 1
+-#define CONFIG_RAMFS 1
+-#define CONFIG_ISO9660_FS 1
+-#undef  CONFIG_JOLIET
+-#undef  CONFIG_ZISOFS
+-#undef  CONFIG_JFS_FS
+-#undef  CONFIG_JFS_DEBUG
+-#undef  CONFIG_JFS_STATISTICS
+-#undef  CONFIG_MINIX_FS
+-#undef  CONFIG_VXFS_FS
+-#undef  CONFIG_NTFS_FS
+-#undef  CONFIG_NTFS_RW
+-#undef  CONFIG_HPFS_FS
+-#define CONFIG_PROC_FS 1
+-#undef  CONFIG_DEVFS_FS
+-#undef  CONFIG_DEVFS_MOUNT
+-#undef  CONFIG_DEVFS_DEBUG
+-#define CONFIG_DEVPTS_FS 1
+-#undef  CONFIG_QNX4FS_FS
+-#undef  CONFIG_QNX4FS_RW
+-#undef  CONFIG_ROMFS_FS
+-#define CONFIG_EXT2_FS 1
+-#undef  CONFIG_SYSV_FS
+-#undef  CONFIG_UDF_FS
+-#undef  CONFIG_UDF_RW
+-#undef  CONFIG_UFS_FS
+-#undef  CONFIG_UFS_FS_WRITE
+-
+-/*
+- * Network File Systems
+- */
+-#undef  CONFIG_CODA_FS
+-#undef  CONFIG_INTERMEZZO_FS
+-#define CONFIG_NFS_FS 1
+-#define CONFIG_NFS_V3 1
+-#define CONFIG_ROOT_NFS 1
+-#undef  CONFIG_NFSD
+-#undef  CONFIG_NFSD_V3
+-#undef  CONFIG_NFSD_TCP
+-#define CONFIG_SUNRPC 1
+-#define CONFIG_LOCKD 1
+-#define CONFIG_LOCKD_V4 1
+-#undef  CONFIG_SMB_FS
+-#undef  CONFIG_NCP_FS
+-#undef  CONFIG_NCPFS_PACKET_SIGNING
+-#undef  CONFIG_NCPFS_IOCTL_LOCKING
+-#undef  CONFIG_NCPFS_STRONG
+-#undef  CONFIG_NCPFS_NFS_NS
+-#undef  CONFIG_NCPFS_OS2_NS
+-#undef  CONFIG_NCPFS_SMALLDOS
+-#undef  CONFIG_NCPFS_NLS
+-#undef  CONFIG_NCPFS_EXTRAS
+-#undef  CONFIG_ZISOFS_FS
+-
+-/*
+- * Partition Types
+- */
+-#undef  CONFIG_PARTITION_ADVANCED
+-#define CONFIG_MSDOS_PARTITION 1
+-#undef  CONFIG_SMB_NLS
+-#undef  CONFIG_NLS
+-
+-/*
+- * Console drivers
+- */
+-#define CONFIG_VGA_CONSOLE 1
+-#undef  CONFIG_VIDEO_SELECT
+-#undef  CONFIG_MDA_CONSOLE
+-
+-/*
+- * Frame-buffer support
+- */
+-#undef  CONFIG_FB
+-
+-/*
+- * Sound
+- */
+-#define CONFIG_SOUND 1
+-#undef  CONFIG_SOUND_ALI5455
+-#undef  CONFIG_SOUND_BT878
+-#undef  CONFIG_SOUND_CMPCI
+-#undef  CONFIG_SOUND_EMU10K1
+-#undef  CONFIG_MIDI_EMU10K1
+-#undef  CONFIG_SOUND_FUSION
+-#undef  CONFIG_SOUND_CS4281
+-#undef  CONFIG_SOUND_ES1370
+-#define CONFIG_SOUND_ES1371 1
+-#undef  CONFIG_SOUND_ESSSOLO1
+-#undef  CONFIG_SOUND_MAESTRO
+-#undef  CONFIG_SOUND_MAESTRO3
+-#undef  CONFIG_SOUND_FORTE
+-#undef  CONFIG_SOUND_ICH
+-#undef  CONFIG_SOUND_RME96XX
+-#undef  CONFIG_SOUND_SONICVIBES
+-#undef  CONFIG_SOUND_TRIDENT
+-#undef  CONFIG_SOUND_MSNDCLAS
+-#undef  CONFIG_SOUND_MSNDPIN
+-#undef  CONFIG_SOUND_VIA82CXXX
+-#undef  CONFIG_MIDI_VIA82CXXX
+-#undef  CONFIG_SOUND_OSS
+-#undef  CONFIG_SOUND_TVMIXER
+-
+-/*
+- * USB support
+- */
+-#define CONFIG_USB 1
+-#undef  CONFIG_USB_DEBUG
+-
+-/*
+- * Miscellaneous USB options
+- */
+-#undef  CONFIG_USB_DEVICEFS
+-#undef  CONFIG_USB_BANDWIDTH
+-#undef  CONFIG_USB_LONG_TIMEOUT
+-
+-/*
+- * USB Host Controller Drivers
+- */
+-#undef  CONFIG_USB_EHCI_HCD
+-#define CONFIG_USB_UHCI_ALT 1
+-#undef  CONFIG_USB_OHCI
+-
+-/*
+- * USB Device Class drivers
+- */
+-#undef  CONFIG_USB_AUDIO
+-#undef  CONFIG_USB_EMI26
+-#undef  CONFIG_USB_BLUETOOTH
+-#undef  CONFIG_USB_MIDI
+-
+-/*
+- *   SCSI support is needed for USB Storage
+- */
+-#undef  CONFIG_USB_STORAGE
+-#undef  CONFIG_USB_STORAGE_DEBUG
+-#undef  CONFIG_USB_STORAGE_DATAFAB
+-#undef  CONFIG_USB_STORAGE_FREECOM
+-#undef  CONFIG_USB_STORAGE_ISD200
+-#undef  CONFIG_USB_STORAGE_DPCM
+-#undef  CONFIG_USB_STORAGE_HP8200e
+-#undef  CONFIG_USB_STORAGE_SDDR09
+-#undef  CONFIG_USB_STORAGE_SDDR55
+-#undef  CONFIG_USB_STORAGE_JUMPSHOT
+-#undef  CONFIG_USB_ACM
+-#undef  CONFIG_USB_PRINTER
+-
+-/*
+- * USB Human Interface Devices (HID)
+- */
+-#undef  CONFIG_USB_HID
+-
+-/*
+- *     Input core support is needed for USB HID input layer or HIDBP support
+- */
+-#undef  CONFIG_USB_HIDINPUT
+-#undef  CONFIG_USB_HIDDEV
+-#undef  CONFIG_USB_KBD
+-#undef  CONFIG_USB_MOUSE
+-#undef  CONFIG_USB_AIPTEK
+-#undef  CONFIG_USB_WACOM
+-
+-/*
+- * USB Imaging devices
+- */
+-#undef  CONFIG_USB_DC2XX
+-#undef  CONFIG_USB_MDC800
+-#undef  CONFIG_USB_SCANNER
+-#undef  CONFIG_USB_MICROTEK
+-#undef  CONFIG_USB_HPUSBSCSI
+-
+-/*
+- * USB Multimedia devices
+- */
+-
+-/*
+- *   Video4Linux support is needed for USB Multimedia device support
+- */
+-
+-/*
+- * USB Network adaptors
+- */
+-#undef  CONFIG_USB_PEGASUS
+-#undef  CONFIG_USB_RTL8150
+-#undef  CONFIG_USB_KAWETH
+-#undef  CONFIG_USB_CATC
+-#undef  CONFIG_USB_CDCETHER
+-#undef  CONFIG_USB_USBNET
+-
+-/*
+- * USB port drivers
+- */
+-#undef  CONFIG_USB_USS720
+-
+-/*
+- * USB Serial Converter support
+- */
+-#undef  CONFIG_USB_SERIAL
+-
+-/*
+- * USB Miscellaneous drivers
+- */
+-#undef  CONFIG_USB_RIO500
+-#undef  CONFIG_USB_AUERSWALD
+-#undef  CONFIG_USB_TIGL
+-#undef  CONFIG_USB_BRLVGER
+-#undef  CONFIG_USB_LCD
+-
+-/*
+- * Bluetooth support
+- */
+-#undef  CONFIG_BLUEZ
+-
+-/*
+- * Kernel hacking
+- */
+-#define CONFIG_DEBUG_KERNEL 1
+-#undef  CONFIG_DEBUG_STACKOVERFLOW
+-#undef  CONFIG_DEBUG_HIGHMEM
+-#undef  CONFIG_DEBUG_SLAB
+-#undef  CONFIG_DEBUG_IOVIRT
+-#undef  CONFIG_MAGIC_SYSRQ
+-#undef  CONFIG_DEBUG_SPINLOCK
+-#undef  CONFIG_FRAME_POINTER
+-
+-/*
+- * Library routines
+- */
+-#undef  CONFIG_ZLIB_INFLATE
+-#undef  CONFIG_ZLIB_DEFLATE
+diff -urN linux/include/linux/ipmi_imb.h linux-emu/include/linux/ipmi_imb.h
+--- linux/include/linux/ipmi_imb.h	Wed Dec 31 18:00:00 1969
++++ linux-emu/include/linux/ipmi_imb.h	Fri Jan 10 11:24:14 2003
+@@ -0,0 +1,144 @@
++/*
++ * ipmi_imb.h
++ *
++ * Intels IMB emulation on the MontaVista IPMI interface
++ *
++ * Author: MontaVista Software, Inc.
++ *         Corey Minyard <minyard@mvista.com>
++ *         source@mvista.com
++ *
++ * Copyright 2002 MontaVista Software Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License as published by the
++ *  Free Software Foundation; either version 2 of the License, or (at your
++ *  option) any later version.
++ *
++ *
++ *  THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
++ *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ *  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ *  OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ *  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ *  TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ *  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++#ifndef __LINUX_IPMI_IMB_H
++#define __LINUX_IPMI_IMB_H
++
++typedef struct overlapped_s {
++    unsigned long Internal;
++    unsigned long InternalHigh;
++    unsigned long Offset;
++    unsigned long OffsetHigh;
++} overlapped_t;
++
++struct smi {
++    unsigned long smi_VersionNo;
++    unsigned long smi_Reserved1;
++    unsigned long smi_Reserved2;
++    void          *ntstatus;	      /* address of NT status block*/
++    void          *lpvInBuffer;       /* address of buffer for input data*/
++    unsigned long cbInBuffer;         /* size of input buffer*/
++    void          *lpvOutBuffer;      /* address of output buffer*/
++    unsigned long cbOutBuffer;        /* size of output buffer*/
++    unsigned long *lpcbBytesReturned; /* address of actual bytes of output*/
++    overlapped_t  *lpoOverlapped;     /* address of overlapped structure*/
++};
++
++
++#define MAX_IMB_PACKET_SIZE	33
++
++typedef struct {
++	unsigned char rsSa;
++	unsigned char cmd;
++	unsigned char netFn;
++	unsigned char rsLun;
++	unsigned char dataLength;
++	unsigned char data[1];
++} ImbRequest;
++
++typedef struct {
++	unsigned long flags;
++#define	      		NO_RESPONSE_EXPECTED	0x01
++
++	unsigned long timeOut;
++	ImbRequest    req;
++} ImbRequestBuffer;
++
++#define MIN_IMB_REQ_BUF_SIZE	13
++
++
++typedef struct {
++	unsigned char cCode;
++	unsigned char data[1];
++} ImbResponseBuffer;
++
++#define MIN_IMB_RESP_BUF_SIZE	1	// a buffer without any request data
++#define MAX_IMB_RESP_SIZE		(MIN_IMB_RESP_BUF_SIZE + MAX_IMB_RESPONSE_SIZE)
++
++#define MIN_IMB_RESPONSE_SIZE	7
++#define MAX_IMB_RESPONSE_SIZE	MAX_IMB_PACKET_SIZE
++
++typedef struct {
++	unsigned long timeOut;
++	unsigned long lastSeq;
++} ImbAsyncRequest;
++
++typedef struct {
++	unsigned long thisSeq;
++	unsigned char data[1];
++} ImbAsyncResponse;
++
++#define MIN_ASYNC_RESP_SIZE		sizeof(unsigned long)
++#define MAX_ASYNC_RESP_SIZE		(MIN_ASYNC_RESP_SIZE + MAX_IMB_PACKET_SIZE)
++
++#define STATUS_SUCCESS                  (0x00000000U)
++#define IMB_NO_ASYNC_MSG		((unsigned long)0xE0070012L)
++#define IMB_SEND_REQUEST_FAILED		((unsigned long)0xE0070013L)
++#define INVALID_ARGUMENTS		((unsigned long)0xE0070002L)
++
++
++#define FILE_DEVICE_IMB			0x00008010
++#define IOCTL_IMB_BASE			0x00000880
++
++#define CTL_CODE(DeviceType, Function, Method, Access)\
++		_IO(DeviceType & 0x00FF, Function & 0x00FF)
++
++#define FILE_DEVICE_IMB			0x00008010
++#define IOCTL_IMB_BASE			0x00000880
++#define METHOD_BUFFERED                 0
++#define FILE_ANY_ACCESS                 0
++
++
++typedef struct {
++	int	code;
++#define		SD_NO_ACTION				0
++#define		SD_RESET				1
++#define		SD_POWER_OFF				2
++
++	int	delayTime;  /* in units of 100 millisecond */
++} ShutdownCmdBuffer;
++
++
++/* BMC added parentheses around IOCTL_IMB_BASE + 2 */
++#define IOCTL_IMB_SEND_MESSAGE		CTL_CODE(FILE_DEVICE_IMB, (IOCTL_IMB_BASE + 2), METHOD_BUFFERED, FILE_ANY_ACCESS)
++#define IOCTL_IMB_GET_ASYNC_MSG		CTL_CODE(FILE_DEVICE_IMB, (IOCTL_IMB_BASE + 8), METHOD_BUFFERED, FILE_ANY_ACCESS)
++#define IOCTL_IMB_MAP_MEMORY		CTL_CODE(FILE_DEVICE_IMB, (IOCTL_IMB_BASE + 14),METHOD_BUFFERED, FILE_ANY_ACCESS)
++#define IOCTL_IMB_UNMAP_MEMORY		CTL_CODE(FILE_DEVICE_IMB, (IOCTL_IMB_BASE + 16),METHOD_BUFFERED, FILE_ANY_ACCESS)
++#define IOCTL_IMB_SHUTDOWN_CODE		CTL_CODE(FILE_DEVICE_IMB, (IOCTL_IMB_BASE + 18),METHOD_BUFFERED, FILE_ANY_ACCESS)
++#define IOCTL_IMB_REGISTER_ASYNC_OBJ	CTL_CODE(FILE_DEVICE_IMB, (IOCTL_IMB_BASE + 24),METHOD_BUFFERED, FILE_ANY_ACCESS)
++#define IOCTL_IMB_DEREGISTER_ASYNC_OBJ	CTL_CODE(FILE_DEVICE_IMB, (IOCTL_IMB_BASE + 26),METHOD_BUFFERED, FILE_ANY_ACCESS)
++#define IOCTL_IMB_CHECK_EVENT		CTL_CODE(FILE_DEVICE_IMB, (IOCTL_IMB_BASE + 28),METHOD_BUFFERED, FILE_ANY_ACCESS)
++#define IOCTL_IMB_POLL_ASYNC		CTL_CODE(FILE_DEVICE_IMB, (IOCTL_IMB_BASE + 20),METHOD_BUFFERED, FILE_ANY_ACCESS)
++
++
++#endif /* __LINUX_IPMI_IMB_H */
+diff -urN linux/include/linux/ipmi_radisys.h linux-emu/include/linux/ipmi_radisys.h
+--- linux/include/linux/ipmi_radisys.h	Wed Dec 31 18:00:00 1969
++++ linux-emu/include/linux/ipmi_radisys.h	Fri Jan 10 11:24:14 2003
+@@ -0,0 +1,128 @@
++/*
++ * ipmi_radisys.h
++ *
++ * An emulation of the Radisys IPMI interface on top of the MontaVista
++ * interface.
++ *
++ * Author: MontaVista Software, Inc.
++ *         Corey Minyard <minyard@mvista.com>
++ *         source@mvista.com
++ *
++ * Copyright 2002 MontaVista Software Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License as published by the
++ *  Free Software Foundation; either version 2 of the License, or (at your
++ *  option) any later version.
++ *
++ *
++ *  THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
++ *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
++ *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ *  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ *  OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
++ *  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
++ *  TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
++ *  USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++#ifndef __LINUX_IPMI_RADISYS_H
++#define __LINUX_IPMI_RADISYS_H
++
++/******************************************************************************
++ * This is the old IPMI interface defined by Radisys.  We are
++ * compliant with that.  Don't use it for new designs, though.
++ */
++#define IOCTL_IPMI_RCV          ( IPMI_IOC_MAGIC<<8 | 1 )
++#define IOCTL_IPMI_SEND         ( IPMI_IOC_MAGIC<<8 | 2 )
++#define IOCTL_IPMI_EVENT        ( IPMI_IOC_MAGIC<<8 | 3 )
++#define IOCTL_IPMI_REGISTER     ( IPMI_IOC_MAGIC<<8 | 4 )
++#define IOCTL_IPMI_UNREGISTER   ( IPMI_IOC_MAGIC<<8 | 5 )
++#define IOCTL_IPMI_CLEAR        ( IPMI_IOC_MAGIC<<8 | 9 )
++
++/* These don't seem to be implemented in the Radisys driver.
++#define IOCTL_IPMI_RESET_BMC    ( IPMI_IOC_MAGIC<<8 | 6 )
++#define IOCTL_IPMI_GET_BMC_ADDR ( IPMI_IOC_MAGIC<<8 | 7 )
++#define IOCTL_IPMI_SET_BMC_ADDR ( IPMI_IOC_MAGIC<<8 | 8 )
++*/
++
++/* 
++ * Network Function Codes 
++ */
++#define IPMI_NETFN_CHASSIS          0x00    /* Chassis - 0x00 << 2 */
++#define IPMI_NETFN_CHASSIS_RESP     0x04    /* Chassis - 0x01 << 2 */
++
++#define IPMI_NETFN_BRIDGE           0x08    /* Bridge - 0x02 << 2 */
++#define IPMI_NETFN_BRIDGE_RESP      0x0c    /* Bridge - 0x03 << 2 */
++
++#define IPMI_NETFN_SENSOR_EVT       0x10    /* Sensor/Event - 0x04 << 2 */
++#define IPMI_NETFN_SENSOR_EVT_RESP  0x14    /* Sensor/Event - 0x05 << 2 */
++
++#define IPMI_NETFN_APP              0x18    /* Application - 0x06 << 2 */
++#define IPMI_NETFN_APP_RESP         0x1c    /* Application - 0x07 << 2 */
++
++#define IPMI_NETFN_FIRMWARE         0x20    /* Firmware - 0x08 << 2 */
++#define IPMI_NETFN_FIRMWARE_RESP    0x24    /* Firmware - 0x09 << 2 */
++
++#define IPMI_NETFN_STORAGE          0x28    /* Storage - 0x0a << 2 */
++#define IPMI_NETFN_STORAGE_RESP     0x2c    /* Storage - 0x0b << 2 */
++
++#define IPMI_NETFN_OEM_1            0xC0    /* Storage - 0x30 << 2 */
++#define IPMI_NETFN_OEM_1_RESP       0xC4    /* Storage - 0x31 << 2 */
++
++/* there are 15 other OEM netfn pairs (OEM - 0x30-0x3f) */
++
++typedef struct _IPMI_LIST_ENTRY {
++   struct _IPMI_LIST_ENTRY * volatile Flink;
++   struct _IPMI_LIST_ENTRY * volatile Blink;
++} IPMI_LIST_ENTRY, *PIPMI_LIST_ENTRY;
++
++typedef struct IPMI_semaphore   IPMI_KSEMAPHORE;
++typedef struct IPMI_semaphore * IPMI_PKSEMAPHORE;
++
++/* IPMI Address structure */
++typedef struct _IPMI_ADDR {
++    unsigned char uchSlave;                /* Slave Address */
++    unsigned char uchLun;                  /* Logical Unit Number */
++} IPMI_ADDR, *PIPMI_ADDR;
++
++#define IPMI_MAX_MSG_SIZE	36
++
++/* IPMI Message Descriptor structure */
++typedef struct _IPMI_MSGDESC {
++                                         /************************************/
++                                         /* Device Driver Specific Elements  */
++                                         /************************************/
++    IPMI_LIST_ENTRY  Entry;                  /* Linked list element */
++    void             *pIRPacket;             /* Pointer to IRP object */
++    IPMI_PKSEMAPHORE pSema;                  /* Semaphore Object */
++    long             lTimeout;               /* Timeout value */
++                                         /************************************/
++                                         /* Shared elements                  */
++                                         /************************************/
++    unsigned char   auchBuffer[IPMI_MAX_MSG_SIZE]; /* Message buffer */
++    unsigned long   ulLength;               /* Length of message in bytes */
++    int             fDefer;                 /* TRUE - Defer I/O
++					       operation, doesn't seem
++					       to be used in the
++					       Radisys driver. */
++    IPMI_ADDR       Dest;                   /* Destination IPM Address */
++    unsigned char   uchNetFn;               /* Network Function */
++    unsigned char   uchCmd;                 /* Command */
++    unsigned char   uchSeq;                 /* Sequence Number */
++    unsigned char   uchComplete;            /* Completion Code */
++} IPMI_MSGDESC, *PIPMI_MSGDESC;
++
++/* Byte return codes for some things. */
++#define LOWLRC_SUCCESS              0x00 /* routine completed successfully */
++#define LOWLRC_ERROR                0xff /* routine did not complete */
++#define LOWLRC_INVALID_PARAMETERS   0xfe /* invalid parameters */
++#define LOWLRC_INVALID_REQUEST_DATA 0xfd /* invalid request data */
++
++#endif /* __LINUX_IPMI_RADISYS_H */

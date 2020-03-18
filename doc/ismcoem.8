@@ -1,0 +1,104 @@
+.TH ISMCOEM 8 "Version 1.0: 05 Apr 2013"
+.SH NAME
+ipmiutil_smcoem \- OEM commands for SuperMicro servers
+.SH SYNOPSIS
+.B "ipmiutil smcoem [-mx -NPRUEFJTVY] commands"
+
+.SH DESCRIPTION
+.I ipmiutil smcoem
+is a function that uses SuperMicro OEM IPMI commands to
+perform platform-specific functions.
+
+.SH OPTIONS
+
+.IP "-m 002000"
+Show FRU for a specific MC (e.g. bus 00, sa 20, lun 00).
+This could be used for PICMG or ATCA blade systems.
+The trailing character, if present, indicates SMI addressing if 's',
+or IPMB addressing if 'i' or not present.
+.IP "-x"
+Causes extra debug messages to be displayed.
+.IP "-N nodename"
+Nodename or IP address of the remote target system.  If a nodename is
+specified, IPMI LAN interface is used.  Otherwise the local system
+management interface is used.
+.IP "-P/-R rmt_pswd"
+Remote password for the nodename given.  The default is a null password.
+.IP "-U rmt_user"
+Remote username for the nodename given.  The default is a null username.
+.IP "-E"
+Use the remote password from Environment variable IPMI_PASSWORD.
+.IP "-F drv_t"
+Force the driver type to one of the followng:
+imb, va, open, gnu, landesk, lan, lan2, lan2i, kcs, smb.
+Note that lan2i means lan2 with intelplus.
+The default is to detect any available driver type and use it.
+.IP "-J"
+Use the specified LanPlus cipher suite (0 thru 17): 0=none/none/none,
+1=sha1/none/none, 2=sha1/sha1/none, 3=sha1/sha1/cbc128, 4=sha1/sha1/xrc4_128,
+5=sha1/sha1/xrc4_40, 6=md5/none/none, ... 14=md5/md5/xrc4_40.
+Default is 3.
+.IP "-T"
+Use a specified IPMI LAN Authentication Type: 0=None, 1=MD2, 2=MD5, 4=Straight Password, 5=OEM.
+.IP "-V"
+Use a specified IPMI LAN privilege level. 1=Callback level, 2=User level, 3=Operator level, 4=Administrator level (default), 5=OEM level.
+.IP "-Y"
+Yes, do prompt the user for the IPMI LAN remote password.
+Alternatives for the password are \-E or \-P.
+
+.SH COMMANDS
+.TP
+\fIintrusion\fP
+.RS
+
+This command resets any chassis intrusion condition that may have
+occurred.
+.RE
+
+.TP
+\fIbmcstatus\fP \fB[enable|disable]\fR
+.RS
+This command gets or sets the BMC service status.
+Alone, without arguments, it gets the BMC status as either enabled or
+disabled.  With an argument of either enable or disable, it will
+also set the BMC status as specified.
+.RE
+
+.TP
+\fIfirmware\fP
+.RS
+
+This command gets the extra firmware version information, if available.
+
+.RE
+
+.TP
+\fIlanport\fP \fB[dedicated|lan1|failover]\fR
+.RS
+This command gets or sets the IPMI LAN interface port.
+If set to dedicated, only the dedicated IPMI NIC can be configured for
+IPMI LAN.  If set to lan1, only the first onboard NIC (LAN1) can be configured
+for IPMI LAN.  If set to failover, both the dedicated and onboard LAN1 port
+would be configured for IPMI LAN, with the same IP address.
+.RE
+
+.SH "SEE ALSO"
+ipmiutil(8) ialarms(8) iconfig(8) icmd(8) idiscover(8) ievents(8) ifru(8) igetevent(8) ihealth(8) ilan(8) ireset(8) isel(8) isensor(8) iserial(8) isol(8)
+
+.SH WARNINGS
+See http://ipmiutil.sourceforge.net/ for the latest version of ipmiutil and any bug fix list.
+
+.SH COPYRIGHT
+Copyright (C) 2013  Andy Cress
+.PP
+See the file COPYING in the distribution for more details
+regarding redistribution.
+.PP
+This utility is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY.
+
+.SH AUTHOR
+.PP
+Andy Cress <arcress at users.sourceforge.net>
+.br
+

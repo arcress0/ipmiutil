@@ -1,0 +1,158 @@
+#! /bin/sh
+#
+#        ipmiutil_evt init script
+#
+# chkconfig: - 91 59
+# description: ipmiutil event monitoring service
+#
+# This starts a daemon that listens for IPMI events.  Any events are logged
+# in /var/log/ipmiutil_evt.log and also to syslog.
+# By changing RUNSCRIPT below, the specified script could also be invoked
+# whenever an event occurs.  A sample event script is provided at
+# /usr/share/ipmiutil/evt.sh
+#
+### BEGIN INIT INFO
+# Provides: ipmiutil_evt
+# Required-Start: $local_fs $remote_fs $syslog
+# Required-Stop: $local_fs $remote_fs $syslog
+# Default-Start: 3 4 5 3 4 5 
+# Default-Stop:  0 1 2 6  0 1 2 6 
+# Short-Description: ipmiutil event monitoring init script
+# Description: Init script starts ipmiutil event monitoring service
+### END INIT INFO
+#
+
+#if [ -f /etc/init.d/functions ]; then
+# Source function library.
+#. /etc/init.d/functions
+#fi
+
+name="ipmiutil_evt"
+getevtlog=/var/log/$name.log
+lockfile=/var/lock/subsys/$name
+prog=/usr/bin/ipmiutil
+RUNSCRIPT=
+# RUNSCRIPT="-r /usr/share/ipmiutil/evt.sh"
+
+
+getpid () {
+    p=`ps -ef |grep "$1" |grep -v grep |awk '{print $2}'`
+    echo $p
+}
+
+start()
+{
+	echo -n "Starting $name: "
+	# do not start if in driverless mode
+        ipmiutil cmd -k |grep "driverless" >/dev/null 2>&1
+	if [ $? -eq 0 ]; then
+	   driverok=0
+	else
+	   driverok=1
+	fi
+	if [ $driverok -eq 1 ]
+	then
+	   [ -x $prog ] || exit 5
+	   $prog getevt -s -b -t 0 $RUNSCRIPT >$getevtlog
+	   retval=$?
+	   PID=$!
+	   if [ $retval -eq 0 ]; then
+	        PID=`getpid "$prog getevt -s"`
+		echo $PID >$lockfile
+	   fi
+	else
+	   echo "No imb or ipmi driver loaded, aborting."
+	   retval=1
+        fi
+	echo
+	return $retval
+}
+
+stop()
+{
+	echo -n "Stopping $name: "
+        retval=1
+        if [ -f $lockfile ]; then
+           p=`cat $lockfile`
+           if [ "x$p" = "x" ]; then
+	        p=`getpid "$prog getevt -s"`
+	   fi
+           if [ "x$p" != "x" ]; then
+                kill $p
+                retval=$?
+           fi
+        fi
+	echo
+	[ $retval -eq 0 ] && rm -f $lockfile
+	return $retval
+}           
+
+restart() {
+  	stop
+	start
+}	
+
+
+rh_status() {
+    if [ -f $lockfile ]; then
+    	p=`cat $lockfile`
+	if [ "x$p" != "x" ]; then
+	   pid=`getpid $p`
+	   if [ "x$pid" != "x" ]; then
+              echo "$name (pid $pid) is running..."
+	      retval=0
+	   else
+	      echo "$name is dead but $lockfile exists"
+	      retval=1
+	   fi
+	else
+	   echo "$name $lockfile exists but is empty"
+	   retval=1
+	fi
+    else
+	echo "$name is stopped"
+	retval=3
+    fi
+    return $retval
+}
+
+rh_status_q() {
+    rh_status >/dev/null 2>&1
+}
+
+if [ ! -d /var/lock/subsys ]; then
+   lockfile=/var/run/$name.pid
+fi
+
+case "$1" in
+    start)
+        rh_status_q && exit 0
+        start
+        ;;
+    stop)
+        rh_status_q || exit 0
+        stop
+        ;;
+    restart)
+        restart
+        ;;
+    reload)
+        rh_status_q || exit 7
+        restart
+        ;;
+    force-reload)
+        restart
+        ;;
+    status)
+        rh_status
+        ;;
+    condrestart|try-restart)
+        rh_status_q || exit 0
+        restart
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|status|restart|condrestart|try-restart|reload|force-reload}"
+        exit 2
+esac
+exit $?
+

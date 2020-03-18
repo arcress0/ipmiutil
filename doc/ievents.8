@@ -1,0 +1,93 @@
+.TH IEVENTS 8 "Version 1.3: 23 June 2009"
+.SH NAME
+ievents \- decode IPMI and PET event data
+.SH SYNOPSIS
+.B "ievents [-bfhnprsx] 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10"
+
+.SH DESCRIPTION
+.I ievents
+is a standalone utility delivered with ipmiutil, used to interpret raw 
+hex data from IPMI events or from IPMI PET SNMP trap varbind data. 
+This utility uses the same interpretation logic as is used by
+"ipmiutil sel" (showsel) and "ipmiutil getevt" (getevents). 
+
+The data bytes in the input are always assumed to be in hex form.
+
+This could be useful if a utility other than "ipmiutil sel" were used to 
+obtain IPMI SEL records or events and interpretation is needed.
+
+This would also be needed at an enterprise management station to 
+interpret the PET SNMP trap hex data into human-readable form, 
+see option \-p.
+
+.SH OPTIONS
+
+.IP "-b bin_file" 
+Interpret a file containing raw binary/hex SEL data dumped in binary form, 
+such as that produced by "ipmitool sel writeraw bin_file". 
+Each set of 16 bytes in the file will be interpreted as an IPMI event.
+(same as \-h)
+
+.IP "-f sel_file"
+Interpret a file containing raw ascii text SEL data captured with 
+ipmiutil sel \-r, or some other similar utility.  
+Each line in the file should be in this 
+form, with no leading spaces: 
+.br
+04 00 02 76 a9 4a 47 20 00 04 10 09 6f 42 0f ff
+.br
+If this option is not specified, the default is to use the 16 bytes 
+taken from the command-line arguments.
+(same as \-r)
+
+.IP "-h bin_file" 
+Interpret a file containing raw binary/hex SEL data dumped in binary form, 
+such as that produced by "ipmitool sel writeraw bin_file". 
+Each set of 16 bytes in the file will be interpreted as an IPMI event.
+(same as \-b)
+
+.IP "-n"
+This option generates a New IPMI platform event, using 9 bytes of input.
+The input bytes are the same as the last 9 bytes of an IPMI event.
+
+.IP "-p"
+Decode as PET event bytes, where the input is 34 PET hex data bytes,
+skipping the first 8 of the 47-byte PET data.  
+The default without \-p assumes that the input is a 16-byte IPMI event.
+
+.IP "-r sel_file"
+Interpret a file containing raw ascii text SEL data captured with 
+ipmiutil sel \-r, or some other similar utility.  
+(same as \-f)
+
+.IP "-s sensor_file"
+Sensor file with the output of "ipmiutil sensor", used
+to get the PET sensor_type from the sensor_num.
+The default is /usr/share/ipmiutil/sensor_out.txt as
+generated during the ipmiutil package installation.
+This is only needed with PET interpretation (\-p).
+
+.IP "-x"
+show eXtra debug messages
+
+
+.SH "SEE ALSO"
+ipmiutil(8) ialarms(8) iconfig(8) icmd(8) idiscover(8) ifru(8) igetevent(8) ihealth(8) ilan(8) ireset(8) isel(8) isensor(8) iserial(8) isol(8) iwdt(8) 
+
+.SH WARNINGS
+See http://ipmiutil.sourceforge.net/ for the latest version of ipmiutil and any bug fix list. 
+
+.SH COPYRIGHT
+Copyright (C) 2009  Kontron America, Inc.
+.PP
+See the file COPYING in the distribution for more details
+regarding redistribution.
+.PP
+This utility is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY.
+
+.SH AUTHOR
+.PP
+Andy Cress <arcress at users.sourceforge.net>
+.br
+

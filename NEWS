@@ -1,0 +1,61 @@
+IPMIUTIL NEWS 
+
+In October 2001, this project started as part of the Carrier Grade Linux effort.
+It was then known as 'panicsel' ("http://panicsel.sf.net") and included a kernel patch to write a Linux panic event to the IPMI firmware log, as well as utilities.  
+
+In July 2002, this code was first included in MontaVista CGE Linux 2.1.
+The panicsel functionality was included in OSDL CGL 1.0 and 2.0 requirements.
+The kernel panic functionality was included in the OpenIPMI driver for 2.6 Linux kernels, and in the Intel IMB Linux driver v28 and greater.
+
+A Linux rpm and a Windows setup package for ipmiutil is included on 
+the platform CD with Intel carrier-grade servers.
+
+The ipmiutil (or panicsel) rpm is known to be included in the following 
+Linux distributions:
+MontaVista CGE 2.1, 3.0, 3.1, 4.0, SuSE SLES9, SLES10, RedFlag 5.0
+
+See http://ipmiutil.sourceforge.net for binaries, documentation, etc.
+
+In Oct 2001 (0.8.1), started panicsel.
+In Dec 2001 (1.0.0), released with Intel Telecom Linux Technology project
+In Jul 2002 (1.2.1), released with MontaVista CGE 2.1
+In Jan 2004 (1.4.1), added support for Windows 2000 & 2003
+In Aug 2004 (1.4.8), the project was moved from panicsel.sf.net to ipmiutil.sf.net.  The new name more clearly reflects the purpose of the project in its current state.  
+In Nov 2004 (1.5.0), support for IPMI LAN was added using FreeIPMI.
+In May 2006 (1.7.0), built-in IPMI LAN support was added.
+In Aug 2006 (1.7.5), driverless direct I/O support was added
+In Jan 2007 (1.8.0), added ipmiutil meta-command, IPMI LAN 2.0 (lanplus) support
+In Feb 2007 (1.9.2), added Linux Serial-Over-Lan console feature 
+In Oct 2007 (2.0.0), added Windows SOL console and remote soft-shutdown features
+In Mar 2008 (2.1.0), the Windows SOL client application was completed.
+In Aug 2008 (2.2.0), iconfig function was added to save/restore the BMC configuration parameters
+In Sep 2008 (2.2.1), support for the Microsoft IPMI driver was added.
+In Nov 2008 (2.3.0), support for the Sun Solaris bmc driver was added.
+In Mar 2009 (2.3.5), support for the FreeBSD OS was added.
+In Oct 2009 (2.5.0), added ANSI VT100  emulation for Windows SOL console
+In Feb 2010 (2.6.0), new subcommand naming scheme (i+subcmd)
+In Apr 2010 (2.6.2), ifruset was added to set all FRU Product Area fields
+In Jun 2010 (2.6.5), added picmg and firewall functionality
+In Aug 2010 (2.6.8), Fedora 14 version of ipmiutil submitted
+In Sep 2010 (2.6.9), added fwum/hpm functionality, and OEM Fujitsu sensor/sel 
+In Sep 2010 (2.7.0), added sunoen, ekanalyzer, fru_picmg, oem_kontron
+In Sep 2010 (2.7.1), added ppc64, mips64, sparc arch support
+In Nov 2010 (2.7.2), added Debian package support
+In Nov 2010 Fedora 14 released with ipmiutil-2.6.8
+In Dec 2010 (2.7.3), added SuperMicro OEM functions
+In Mar 2011 OpenSuSE 11.4 released with ipmiutil-2.7.2
+In May 2011 (2.7.6), added VLAN support and WIN64 fixes
+In Sep 2011 (2.7.8), added IPv6, systemd, Dell OEM functions, PICMG 2.3, tsol
+In Oct 2011 (2.7.9), support Wind River and ARM cross-compile, Intel S2600
+In Dec 2011 (2.8.0), added DCMI 1.1 commands, devel pkg, MSI package
+In Feb 2012 (2.8.1), added Quanta S99Q functions, Dell fixes, Intel ME fixes
+In Mar 2012 (2.8.2), added Intel Romley OEM support
+In Jun 2012 (2.8.4), added support for HP-UX builds and DCMI 1.1 commands
+In Oct 2012 (2.8.6), added pre-built Windows DLL for sample development apps
+In Feb 2013 (2.8.8), added much more SuperMicro OEM support
+In Apr 2013 (2.9.0), added iseltime to sync sys/RTC/SEL times
+In May 2013 (2.9.1), added support for MacOSX client
+In Dec 2016 (3.0.1), added support for Lenovo OEM sensors
+In Feb 2017 (3.0.1), added support for ASUS OEM sensors
+In Mar 2017 (3.0.3), added iuser to consolidate user functions
+

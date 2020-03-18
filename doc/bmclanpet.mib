@@ -1,0 +1,1083 @@
+--/************************************************************************
+--*                                                                       *
+--*  Copyright (c) 1998-2004 Intel Corporation. All Rights Reserved.      *
+--*                                                                       *
+--* Redistribution and use in source and binary forms, with or without    *
+--* modification, are permitted provided that the following conditions    *
+--* are met:                                                              *
+--*                                                                       *
+--*   a.. Redistributions of source code must retain the above copyright  *
+--*       notice, this list of conditions and the following disclaimer.   *
+--*   b.. Redistributions in binary form must reproduce the above         *
+--*       copyright notice, this list of conditions and the following     *
+--*       disclaimer in the documentation and/or other materials provided *
+--*       with the distribution.                                          *
+--*   c.. Neither the name of Intel Corporation nor the names of its      *
+--*       contributors may be used to endorse or promote products derived *
+--*       from this software without specific prior written permission.   *
+--*                                                                       *
+--* THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS   *
+--* "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT     *
+--* LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR *
+--* A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT  *
+--* OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, *
+--* SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT      *
+--* LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, *
+--* DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON     *
+--* ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR    *
+--* TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF    *
+--* THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH  *
+--* DAMAGE.                                                               *
+--*                                                                       *
+--*************************************************************************
+--* Name                        : PetEvents.mib
+--* Description	                : MIB file for PET events
+--* Created                     : Wesdnesday, December 17, 2003
+--* Author                      : Intel Corporation
+--* 
+--* $History:$ 
+--*
+--*             Date                    : March 7th,2002 
+--*             Changed by              : 
+--*             Change Description      : Updated MIB file 
+--*							  
+--*             Date                    : December 17th,2003 
+--*             Changed by              : 
+--*             Change Description      : Started with ASF MIB file
+--*                                       
+--*************************************************************************/
+
+
+
+PET-EVENTS DEFINITIONS ::= BEGIN
+
+	IMPORTS
+		enterprises
+			FROM RFC1155-SMI
+		OBJECT-TYPE
+			FROM RFC-1212
+
+        	TRAP-TYPE
+		        FROM RFC-1215
+  
+
+		DisplayString
+			FROM RFC1213-MIB;
+
+	wiredformgmt     OBJECT IDENTIFIER ::= { enterprises 3183 }
+	pet              OBJECT IDENTIFIER ::= { wiredformgmt 1 }
+
+-- MODULE IDENTIFICATION
+--
+--  PET Events Alerting MODULE-IDENTITY
+--  LAST-UPDATED "February 4, 2004"
+--  ORGANIZATION "Intel Corporation"
+--  CONTACT-INFO
+--   " PET Events,
+--     Intel Corporation, DP3-407
+--	   DuPont, WA 98352"
+--  DESCRIPTION
+--  "This is the MIB file for SNMPv1.0 based PET traps"
+
+
+-- ****************************************
+-- SYSTEM INFORMATION BRANCH STARTS HERE.
+-- ****************************************
+
+	petevts   		OBJECT IDENTIFIER ::= { pet 1 }
+
+
+-- **********************************************
+-- *		Temperature			*
+-- **********************************************
+
+-- Lower Non Critical threshold crossed
+ trapUnderTemperatureWarning TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+ "Under-Temperature Warning (Lower non-critical, going low)"
+
+ --#TYPE       "Temperature Event"
+ --#SUMMARY    "Under-Temperature Warning (Lower non-critical, going low)"
+ --#ARGUMENTS  {}
+ --#SEVERITY   WARNING
+
+ ::= 65792
+
+-- Lower Critical threshold crossed
+ trapUnderTemperatureCritical TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+ "Critical Under-Temperature Problem (Lower Critical - going low)"
+
+ --#TYPE       "Temperature Event"
+ --#SUMMARY    "Critical Under-Temperature Problem (Lower Critical - going low)"
+ --#ARGUMENTS  {}
+ --#SEVERITY   CRITICAL
+
+ ::= 65794
+
+-- Upper Non Critical threshold crossed
+ trapOverTemperatureWarning TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+ "Over-Temperature Warning (Upper non-critical, going high)"
+
+ --#TYPE       "Temperature Event"
+ --#SUMMARY    "Over-Temperature Warning (Upper non-critical, going high)"
+ --#ARGUMENTS  {}
+ --#SEVERITY   WARNING
+
+ ::= 65799
+
+-- Upper Critical threshold crossed
+ trapOverTemperatureCritical TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+ "Critical Over-Temperature Problem (Upper Critical - going high)"
+
+ --#TYPE       "Temperature Event"
+ --#SUMMARY    "Critical Over-Temperature Problem (Upper Critical - going high)"
+ --#ARGUMENTS  {}
+ --#SEVERITY   CRITICAL
+
+ ::= 65801
+
+-- Back to Normal from Lower Non Critical
+ trapUnderTemperatureWarningCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+ "Under-Temperature Warning Cleared"
+
+ --#TYPE       "Temperature Event"
+ --#SUMMARY    "Under-Temperature Warning Cleared"
+ --#ARGUMENTS  {}
+ --#SEVERITY   INFORMATIONAL
+
+ ::= 65920
+
+-- Back to Normal from Lower Critical
+ trapUnderTemperatureCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+ "Under-Temperature Problem Cleared"
+
+ --#TYPE       "Temperature Event"
+ --#SUMMARY    "Under-Temperature Problem Cleared"
+ --#ARGUMENTS  {}
+ --#SEVERITY   INFORMATIONAL
+
+ ::= 65922
+
+-- Back to Normal from Upper Non Critical
+ trapOverTemperatureWarningCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+ "Over-Temperature warning Cleared"
+
+ --#TYPE       "Temperature Event"
+ --#SUMMARY    "Over-Temperature Warning Cleared"
+ --#ARGUMENTS  {}
+ --#SEVERITY   INFORMATIONAL
+
+ ::= 65927
+
+-- Back to Normal from Upper Critical
+ trapOverTemperatureCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+ "Over-Temperature Problem Cleared"
+
+ --#TYPE       "Temperature Event"
+ --#SUMMARY    "Over-Temperature Problem Cleared"
+ --#ARGUMENTS  {}
+ --#SEVERITY   INFORMATIONAL
+
+ ::= 65929
+
+-- Generic critical temperature problem
+ trapGenericCriticalTemperature TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+ "Generic Critical Temperature Problem (Transition to Critical from less severe)"
+
+ --#TYPE       "Temperature Event"
+ --#SUMMARY    "Generic Critical Temperature Problem (Transition to Critical from less severe)"
+ --#ARGUMENTS  {}
+ --#SEVERITY   CRITICAL
+
+ ::= 67330
+
+-- Generic temperature warning
+ trapGenericTemperatureWarning TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Generic Temperature Warning (Transition to Warning from less severe)"
+
+--#TYPE	      "Temperature Event"
+--#SUMMARY    "Generic Temperature Warning (Transition to Warning from less severe)"
+--#ARGUMENTS  {}
+--#SEVERITY   WARNING
+
+ ::= 67331
+
+
+-- **********************************************
+-- *		Voltage				*
+-- **********************************************
+
+-- (Analog voltage) Lower Non Critical threshold crossed
+ trapUnderAnalogVoltageWarning TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Under-Voltage Warning (Lower Non Critical - going low)"
+--#TYPE       "Voltage Event"
+--#SUMMARY    "Under-Voltage Warning (Lower Non Critical - going low)"
+--#ARGUMENTS  {}
+--#SEVERITY   WARNING
+
+ ::= 131328
+
+-- (Analog voltage) Lower Critical threshold crossed
+ trapUnderAnalogVoltageCritical TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Critical Under-Voltage Problem (Lower Critical - going low)"
+
+--#TYPE       "Voltage Event"
+--#SUMMARY    "Critical Under-Voltage Problem (Lower Critical - going low)"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 131330
+
+-- (Analog voltage) Upper Non Critical threshold crossed
+ trapOverAnalogVoltageWarning TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Over-Voltage Warning (Upper Non Critical - going high)"
+ 
+--#TYPE       "Voltage Event"
+--#SUMMARY    "Over-Voltage Warning (Upper Non Critical - going high)"
+--#ARGUMENTS  {}
+--#SEVERITY   WARNING
+
+ ::= 131335
+
+-- (Analog voltage) Upper Critical threshold crossed
+ trapOverAnalogVoltageCritical TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Critical Over-Voltage Problem (Upper Critical - going high)"
+
+--#TYPE       "Voltage Event"
+--#SUMMARY    "Critical Over-Voltage Problem (Upper Critical - going high)"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 131337
+
+-- (Analog voltage) Voltage back to OK from Lower Non Critical
+ trapUnderAnalogVoltageWarningCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION
+  "Under-Voltage Warning Cleared"
+
+--#TYPE       "Voltage Event"
+--#SUMMARY    "Under-Voltage Warning Cleared"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 131456
+
+-- (Analog voltage) Voltage back to OK from Lower Non Critical
+ trapUnderAnalogVoltageCriticalCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Under-Voltage Problem Cleared"
+
+--#TYPE       "Voltage Event"
+--#SUMMARY    "Under-Voltage Problem Cleared"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 131458
+
+-- (Analog voltage) Voltage back to OK from Upper Non Critical Warning
+ trapOverAnalogVoltageWarningCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Over-Voltage Warning Cleared"
+
+--#TYPE       "Voltage Event"
+--#SUMMARY    "Over-Voltage Warning Cleared"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 131463
+
+-- (Analog voltage) Voltage back to OK from Upper Critical
+ trapOverAnalogVoltageCriticalCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Over-Voltage Problem Cleared"
+
+--#TYPE       "Voltage Event"
+--#SUMMARY    "Over-Voltage Problem Cleared"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 131465
+
+-- (Discrete voltage) Critical voltage problem
+ trapGenericCriticalDiscreteVoltageCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Generic Critical Voltage Problem Cleared"
+
+--#TYPE       "Voltage Event"
+--#SUMMARY    "Generic Critical Voltage Problem Cleared"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 131840
+
+-- (Discrete voltage) Critical voltage problem
+ trapGenericCriticalDiscreteVoltage TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Generic Critical Voltage Problem (Transition to Critical from less severe)"
+
+--#TYPE       "Voltage Event"
+--#SUMMARY    "Generic Critical Voltage Problem (Transition to Critical from less severe)"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 131841
+
+-- (Discrete voltage) Critical voltage problem
+ trapGenericCriticalDiscreteVoltage2 TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Generic Critical Voltage Problem (Transition to Critical from less severe)"
+
+--#TYPE	      "Voltage Event"
+--#SUMMARY    "Generic Critical Voltage Problem (Transition to Critical from less severe)"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 132866
+
+-- (Discrete voltage) Non-Critical voltage problem
+ trapGenericDiscreteVoltageWarning TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Generic Voltage Warning (Transition to Non-Critical from less severe)"
+
+--#TYPE	      "Voltage Event"
+--#SUMMARY    "Generic Voltage Warning (Transition to Non-Critical from less severe)"
+--#ARGUMENTS  {}
+--#SEVERITY   WARNING
+
+ ::= 132867
+
+
+-- **********************************************
+-- *			Fan			*
+-- **********************************************
+
+-- Lower Non Critical threshold crossed
+ trapFanUnderSpeedWarning TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Fan speed warning (Fan speed below expected speed)"
+
+--#TYPE       "Fan Event"
+--#SUMMARY    "Fan speed Warning (Fan speed below expected speed)"
+--#ARGUMENTS  {}
+--#SEVERITY   WARNING
+
+ ::= 262400
+
+-- Fan Lower Critical threshold crossed
+ trapFanCriticalUnderSpeed TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Generic Critical Fan Failure (Transition to Critical from less severe)"
+
+--#TYPE       "Fan Event"
+--#SUMMARY    "Critical Fan Failure (Transition to Critical from less severe)"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+ 
+ ::= 262402
+
+-- Fan back to OK from warning level
+ trapFanUnderSpeedWarningCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Fan speed Warning Cleared"
+ 
+--#TYPE       "Fan Event"
+--#SUMMARY    "Fan speed Warning Cleared"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 262528
+
+-- Fan back to OK from critical level
+ trapFanCriticalUnderSpeedCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Critical Fan Failure Cleared"
+
+--#TYPE       "Fan Event"
+--#SUMMARY    "Critical Fan Failure Cleared"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 262530
+
+-- Fan Full Redundancy 
+ trapFanFullRedundancy TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Fan redundancy has returned to Normal"
+
+--#TYPE       "Fan Event"
+--#SUMMARY    "Fan redundancy has returned to Normal"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 264960
+
+-- Fan Redundancy lost 
+ trapFanRedundancyLost TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Fan Redundancy has been Lost"
+
+--#TYPE       "Fan Event"
+--#SUMMARY    "Fan Redundancy has been Lost"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 264961
+
+-- Fan Redundancy degraded
+ trapFanRedundancyDegraded TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Fan Redundancy is in a degraded state"
+
+--#TYPE       "Fan Event"
+--#SUMMARY    "Fan Redundancy is in a degraded state"
+--#ARGUMENTS  {}
+--#SEVERITY   WARNING
+
+ ::= 264962
+
+
+-- **********************************************
+-- *	Power Supply 				*
+-- **********************************************
+
+-- Power Supply Full Redundancy 
+ trapPowerSupplyFullRedundancy TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Power Supply Redundancy Has Returned to Normal"
+
+--#TYPE       "Power Supply Event"
+--#SUMMARY    "Power Supply Redundancy Has Returned to Normal"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 527104
+
+-- Power Supply Redundancy lost 
+ trapPowerSupplyRedundancyLost TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Power Supply Redundancy has been Lost"
+
+--#TYPE       "Power Supply Event"
+--#SUMMARY    "Power Supply Redundancy has been Lost"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 527105
+
+-- Power Supply Redundancy degraded
+ trapPowerSupplyRedundancyDegraded TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Power Supply Redundancy is in a degraded state"
+
+--#TYPE       "Power Supply Event"
+--#SUMMARY    "Power Supply Redundancy is in a degraded state"
+--#ARGUMENTS  {}
+--#SEVERITY   WARNING
+
+ ::= 527106
+
+-- Power Supply presence detected
+ trapPowerSupplyPresenceDeteced TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Power Supply Inserted"
+
+--#TYPE       "Power Supply Event"
+--#SUMMARY    "Power Supply Inserted"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 552704
+
+trapPowerSupplyFailureDetected TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Power supply Failure detected"
+
+--#TYPE       "Power Supply Event"
+--#SUMMARY    "Power Supply failure detected"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 552705
+
+trapPowerSupplyWarning TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Power supply Warning"
+
+--#TYPE       "Power Supply Event"
+--#SUMMARY    "Power Supply Warning"
+--#ARGUMENTS  {}
+--#SEVERITY   WARNING
+
+ ::= 552706
+
+ -- AC Lost
+ trapPowerSupplyACLost TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Power Supply AC Lost"
+
+--#TYPE       "Power Supply Event"
+--#SUMMARY    "Power Supply AC Lost"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 552707
+
+-- Power Supply removed
+ trapPowerSupplyPresenceRemoved TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+ "Power Supply Removed"
+
+--#TYPE       "Power Supply Event"
+--#SUMMARY    "Power Supply Removed"
+--#ARGUMENTS  {}
+--#SEVERITY   WARNING
+
+ ::= 552832
+
+-- Back to normal from failure
+ trapPowerSupplyFailureCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Power Supply Failure Cleared"
+
+--#TYPE       "Power Supply Event"
+--#SUMMARY    "Power Supply Failure Cleared"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 552833
+
+-- Predictive Failure cleared 
+ trapPowerSupplyWarningCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Power Supply Warning Cleared"
+
+--#TYPE       "Power Supply Event"
+--#SUMMARY    "Power Supply Warning Cleared"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 552834
+
+ -- AC Back
+ trapPowerSupplyACBack TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Power Supply AC Restored"
+
+--#TYPE       "Power Supply Event"
+--#SUMMARY    "Power Supply AC Restored"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 552835
+
+-- Power Unit Redundancy OK 
+ trapPowerUnitRedundancyOk TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Power Unit Redundancy has been restored"
+
+--#TYPE       "Power Supply Event"
+--#SUMMARY    "Power Unit Redundancy has been restored"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 592640
+
+-- Power Unit Redundancy lost 
+ trapPowerUnitRedundancyLost TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Power Unit Redundancy has been Lost"
+
+--#TYPE       "Power Supply Event"
+--#SUMMARY    "Power Unit Redundancy has been Lost"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 592641
+
+-- **********************************************
+-- *	Processor 				*
+-- **********************************************
+
+-- Processor internal error
+ trapProcessorInternalError TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Processor Internal Error"
+
+--#TYPE       "Processor Event"
+--#SUMMARY    "Processor Internal Error"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 487168
+
+-- Processor Thermal Trip
+ trapProcessorThermalTrip TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+ "Processor Thermal Trip (Over Temperature Shutdown)"
+
+--#TYPE       "Processor Event"
+--#SUMMARY    "Processor Thermal Trip (Over Temperature Shutdown)"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 487169
+
+-- Processor Fault Resilient Booting (FRB) 1 / Built-in self test (BIST) Error
+ trapProcessorBistError TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Processor Fault Resilient Booting (FRB) 1 / BIST (Built In Self Test) Failure"
+
+--#TYPE       "Processor Event"
+--#SUMMARY    "Processor Fault Resilient Booting (FRB) 1 / Processor BIST (Built In Self Test) Failure"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 487170
+
+-- Processor Fault Resilient Booting (FRB) 2 / Hang in Power On Self Test (POST)
+trapProcessorFRB2Failure TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Processor Fault Resilient Booting (FRB) 2 / Hang in Power On Self Test (POST) Failure"
+
+--#TYPE       "Processor Event"
+--#SUMMARY    "Processor Fault Resilient Booting (FRB) 2 / Hang in Power On Self Test (POST) Failure"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL 
+
+ ::= 487171
+
+-- Processor Fault Resilient Booting (FRB) 3 / Processor Setup / Initialization Failure
+trapProcessorFRB3Failure TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Processor Fault Resilient Booting (FRB) 3 / Processor Setup / Initialization Failure"
+
+--#TYPE	"Processor Event"
+--#SUMMARY    "Processor Fault Resilient Booting (FRB) 3 / Processor Setup / Initialization Failure"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 487172
+
+-- Processor config error
+ trapProcessorConfigError TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Processor Configuration Error"
+
+--#TYPE       "Processor Event"
+--#SUMMARY    "Processor Configuration Error"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 487173
+
+-- Processor throttle.
+ trapProcessorThrottle TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Processor Throttled (Processor Speed Reduced)"
+
+--#TYPE       "Processor Event"
+--#SUMMARY    "Processor Throttled (Processor Speed Reduced)"
+--#ARGUMENTS  {}
+--#SEVERITY   WARNING
+
+ ::= 487178
+
+-- Processor internal error cleared
+ trapProcessorInternalErrorCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Processor Internal Error Cleared"
+
+--#TYPE       "Processor Event"
+--#SUMMARY    "Processor Internal Error Cleared"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 487296
+
+-- Processor Back to normal from Thermal Trip
+ trapProcessorThermalTripCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Processor Thermal Trip (Over Temperature Shutdown) Cleared"
+
+--#TYPE       "Processor Event"
+--#SUMMARY    "Processor Thermal Trip (Over Temperature Shutdown) Cleared"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 487297
+
+-- Processor BIST Error cleared
+ trapProcessorBistErrorCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Processor BIST (Built In Self Test) Failure Cleared"
+
+--#TYPE       "Processor Event"
+--#SUMMARY    "Processor BIST (Built In Self Test) Failure Cleared"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 487298
+
+-- Processor config error cleared
+ trapProcessorConfigErrorCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Processor Configuration Error Cleared"
+
+--#TYPE       "Processor Event"
+--#SUMMARY    "Processor Configuration Error Cleared"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 487301
+
+-- Processor return to normal from throttled
+ trapProcessorThrottleCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Processor Throttle Cleared (Normal Processor Speed)"
+
+--#TYPE       "Processor Event"
+--#SUMMARY    "Processor Throttle Cleared (Normal Processor Speed)"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 487306
+
+-- **********************************************
+-- *			Memory			*
+-- **********************************************
+
+trapMemoryUncorrectableECC TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Uncorrectable ECC or other uncorrectable memory error"
+
+--#TYPE       "Memory Event"
+--#SUMMARY    "Uncorrectable ECC or other uncorrectable memory error"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 814849
+
+
+--**********************
+--* Chassis Intrusion  *
+--**********************
+
+-- Chassis Intrusion
+ trapChassisIntrusion TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Chassis Intrusion - Physical Security Violation"
+
+--#TYPE       "Chassis Intrusion Event"
+--#SUMMARY    "Chassis Intrusion - Physical Security Violation"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 356096
+
+-- Chassis Intrusion cleared
+ trapChassisIntrusionCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+ "Chassis Intrusion (Physical Security Violation) Event Cleared"
+
+--#TYPE       "Chassis Intrusion Event"
+--#SUMMARY    "Chassis Intrusion( Physical Security Violation) Event Cleared"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 356224
+
+
+-- **********************************************
+-- *		Critical Interrupts		*
+-- **********************************************
+
+-- Critical Interrupt, Bus timeout error
+trapCriticalInterruptBusTimeout TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Critical Interrupt, Bus Timeout error"
+
+--#TYPE       "Critical Interrupts Event"
+--#SUMMARY    "Critical Interrupt, Bus Timeout error"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 1273601
+
+-- Critical Interrupt, IO Channel Non-Maskable Interrupt
+trapCriticalInterruptIOChannelNMI TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Critical Interrupt, IO Channel check NMI error"
+
+--#TYPE       "Critical Interrupts Event"
+--#SUMMARY    "Critical Interrupt, IO Channel check NMI error"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 1273602
+
+-- Critical Interrupt, Software Non-Maskable Interrupt error
+trapCriticalInterruptSoftwareNMI TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Critical Interrupt, software NMI error"
+
+--#TYPE       "Critical Interrupts Event"
+--#SUMMARY    "Critical Interrupt, software NMI error"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 1273603
+
+-- Non special-cycle parity errors
+trapCriticalInterruptPCIPERR TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Critical Interrupt, PCI PERR parity error"
+
+--#TYPE       "Critical Interrupts Event"
+--#SUMMARY    "Critical Interrupt, PCI PERR parity error"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 1273604
+
+-- Special-cycle parity errors
+trapCriticalInterruptPCISERR TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Critical Interrupt, PCI SERR parity error"
+
+--#TYPE       "Critical Interrupts Event"
+--#SUMMARY    "Critical Interrupt, PCI SERR parity error"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 1273605
+
+-- Bus uncorrectable error
+trapCriticalInterruptBusUncorrect TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Critical Interrupt, Bus Uncorrectable error"
+
+--#TYPE       "Critical Interrupts Event"
+--#SUMMARY    "Critical Interrupt, Bus Uncorrectable error"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 1273608
+
+-- Fatal non-maskable interrupt (NMI)
+trapCriticalInterruptFatalNMI TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Critical Interrupt, Fatal NMI error"
+
+--#TYPE       "Critical Interrupts Event"
+--#SUMMARY    "Critical Interrupt, Fatal NMI error"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 1273609
+
+
+-- **********************************************
+-- *	System Firmware Progress		*
+-- **********************************************
+
+-- Power On Self Test (POST) code error
+trapBIOSPOSTCodeError TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "System Firmware Progress: BIOS POST code error"
+
+--#TYPE       "System Firmware Progress Event"
+--#SUMMARY    "System Firmware Progress: BIOS POST code error"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 1011456
+
+
+-- **********************************************
+-- *	      	WatchDog			*
+-- **********************************************
+
+-- Watchdog reset event
+trapWatchdogReset TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Watchdog Reset"
+
+--#TYPE       "Watchdog Event"
+--#SUMMARY    "Watchdog Reset"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::=  2322177
+
+-- Watchdog power down event
+trapWatchdogPowerDown TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Watchdog Power Down"
+
+--#TYPE       "Watchdog Event"
+--#SUMMARY    "Watchdog Power Down"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::=  2322178
+
+-- Watchdog power cycle event
+trapWatchdogPowerCycle TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "Watchdog Power Cycle"
+
+--#TYPE       "Watchdog Event"
+--#SUMMARY    "Watchdog Power cycle"
+--#ARGUMENTS  {}
+--#SEVERITY   WARNING
+
+ ::= 2322179
+
+
+-- **********************************************
+-- *	      	System Event Log		*
+-- **********************************************
+
+-- System Event Log Cleared
+ trapSystemEventLogCleared TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "System Event Log (SEL) Cleared"
+
+--#TYPE       "System Event Log"
+--#SUMMARY    "System Event Log (SEL) Cleared"
+--#ARGUMENTS  {}
+--#SEVERITY   INFORMATIONAL
+
+ ::= 1076994
+
+-- System Event Log Full
+ trapSystemEventLogFull TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "System Event Log (SEL) Full (Logging Disabled)"
+
+--#TYPE       "System Event Log"
+--#SUMMARY    "System Event Log (SEL) Full (Logging Disabled)"
+--#ARGUMENTS  {}
+--#SEVERITY   CRITICAL
+
+ ::= 1076995
+
+
+-- **********************************************
+-- *	      	System     			*
+-- **********************************************
+
+-- System boot event
+trapSystemBootEvent TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "System Boot Event"
+
+--#TYPE       "System Event"
+--#SUMMARY    "System Boot Event"
+--#ARGUMENTS  {}
+--#SEVERITY   WARNING
+
+ ::= 1208065
+
+-- **********************************************
+-- *	      	Linux Panic, Critical Stop	*
+-- **********************************************
+
+-- Linux panic event
+trapOSCriticalStop TRAP-TYPE
+ ENTERPRISE petevts
+ DESCRIPTION 
+  "OS Critical Stop occurred"
+
+--#TYPE       "System Event"
+--#SUMMARY    "System Boot Event"
+--#ARGUMENTS  {}
+--#SEVERITY   WARNING
+
+ ::= 2125569
+
+END

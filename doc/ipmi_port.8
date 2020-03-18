@@ -1,0 +1,44 @@
+.TH IPMI_PORT 8 "Version 1.0: 14 Apr 2010"
+.SH NAME
+ipmi_port \- a daemon to bind RMCP port 623 to prevent portmap from using it
+
+.SH SYNOPSIS
+.B "ipmi_port [-bx]"
+
+.SH DESCRIPTION
+This 
+.I ipmi_port 
+service starts and binds port 623, then sleeps forever, so that the portmap 
+service will not try to reuse port 623, which it otherwise might try to do.  
+Since the IPMI firmware snoops the NIC channel and grabs any traffic destined 
+for RMCP port 623, any application in the OS which tried to use port 623 
+would fail.
+
+.SH OPTIONS
+Command line options are described below.
+.IP "-b"
+Background mode.  Convert to a daemon and run in background.
+Without specifying this option, ipmi_port will run in foreground.
+.IP "-x"
+Causes eXtra debug messages to be displayed.
+
+.SH "SEE ALSO"
+ipmiutil(8) ialarms(8) iconfig(8) idiscover(8) ievents(8) ifru(8) igetevent(8) ihealth(8) ilan(8) ireset(8) isel(8) isensor(8) iserial(8) isol(8) iwdt(8) 
+
+.SH WARNINGS
+See http://ipmiutil.sourceforge.net/ for the latest version of ipmiutil and any bug fix list. 
+
+.SH COPYRIGHT
+Copyright (C) 2009  Kontron America, Inc.
+.PP
+See the file COPYING in the distribution for more details
+regarding redistribution.
+.PP
+This utility is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY.
+
+.SH AUTHOR
+.PP
+Andy Cress <arcress at users.sourceforge.net>
+.br
+

@@ -1,0 +1,148 @@
+ipmiutil ver 2.53
+sensor: version 2.53
+-- BMC version 0.48, IPMI version 2.0 
+_ID_ SDR_Type_xx ET Own Typ S_Num   Sens_Description   Hex & Interp Reading
+0001 SDR Full 01 01 20 a 02 snum 10 BB +1.1V IOH     = e9 OK   1.09 Volts
+0002 SDR Full 01 01 20 a 02 snum 11 BB +1.1V P1 Vccp = a1 OK   0.99 Volts
+0003 SDR Full 01 01 20 a 02 snum 12 BB +1.1V P2 Vccp = a2 OK   0.99 Volts
+0004 SDR Full 01 01 20 a 02 snum 13 BB +1.5V P1 DDR3 = ec OK   1.53 Volts
+0005 SDR Full 01 01 20 a 02 snum 14 BB +1.5V P2 DDR3 = eb OK   1.52 Volts
+0006 SDR Full 01 01 20 a 02 snum 15 BB +1.8V AUX     = e8 OK   1.77 Volts
+0007 SDR Full 01 01 20 a 02 snum 16 BB +3.3V         = e8 OK   3.34 Volts
+0008 SDR Full 01 01 20 a 02 snum 17 BB +3.3V STBY    = e6 OK   3.31 Volts
+0009 SDR Full 01 01 20 a 02 snum 18 BB +3.3V Vbat    = e7 OK   3.01 Volts
+000a SDR Full 01 01 20 a 02 snum 19 BB +5.0V         = e0 OK   4.90 Volts
+000b SDR Full 01 01 20 a 02 snum 1a BB +5.0V STBY    = e8 OK   5.08 Volts
+000c SDR Full 01 01 20 a 02 snum 1b BB +12.0V        = e3 OK   11.99 Volts
+000d SDR Full 01 01 20 a 02 snum 1c BB -12.0V        = be OK   -11.59 Volts
+000e SDR Full 01 01 20 a 01 snum 20 Baseboard Temp   = 1d OK   29.00 degrees C
+000f SDR Full 01 01 20 a 01 snum 21 Front Panel Temp = 18 OK   24.00 degrees C
+0010 SDR Full 01 01 20 a 01 snum 22 IOH Therm Margin = cf OK   -49.00 degrees C
+0011 SDR Full 01 01 20 a 01 snum 23 Mem P1 Thrm Mrgn = d8 OK   -40.00 degrees C
+0012 SDR Full 01 01 20 a 01 snum 24 Mem P2 Thrm Mrgn = d6 OK   -42.00 degrees C
+0013 SDR Full 01 01 20 m 04 snum 30 System Fan 1     = 66 OK   4590.00 RPM
+0014 SDR Full 01 01 20 m 04 snum 31 System Fan 2     = 65 OK   4545.00 RPM
+0015 SDR Full 01 01 20 m 04 snum 32 System Fan 3     = 67 OK   4635.00 RPM
+0016 SDR Full 01 01 20 m 04 snum 33 System Fan 4     = 65 OK   4545.00 RPM
+0017 SDR Full 01 01 20 m 04 snum 38 System Fan 5     = 72 OK   5700.00 RPM
+0018 SDR Full 01 01 20 m 04 snum 39 System Fan 6     = 72 OK   5700.00 RPM
+0019 SDR Full 01 01 20 a 0b snum 52 PS1 Power In     = 2a OK   168.00 Watts
+001a SDR Full 01 01 20 a 03 snum 54 PS1 Curr Out %   = 14 OK   20.00 unspecified
+001b SDR Full 01 01 20 a 01 snum 56 PS1 Temperature  = 1b OK   27.00 degrees C
+001c SDR Full 01 01 20 a 01 snum 62 P1 Therm Margin  = b9 OK   -71.00 degrees C
+001d SDR Full 01 01 20 a 01 snum 63 P2 Therm Margin  = b8 OK   -72.00 degrees C
+001e SDR Full 01 01 20 a 01 snum 64 P1 Therm Ctrl %  = 00 OK   0.00 unspecified
+001f SDR Full 01 01 20 a 01 snum 65 P2 Therm Ctrl %  = 00 OK   0.00 unspecified
+0020 SDR Full 01 01 c0 a 01 snum 01 HSBP Temperature = 19 OK*  25.00 degrees C
+0021 SDR Comp 02 6f 20 a 09 snum 01 Power Unit Stat  = 00 c0 00 00 Enabled 
+0022 SDR Comp 02 6f 20 a 23 snum 03 IPMI Watchdog    = 00 c0 00 00 OK  
+0023 SDR Comp 02 6f 20 a 05 snum 04 Physical Scrty   = 00 c0 01 00 ChassisIntrus
+0024 SDR Comp 02 6f 20 a 13 snum 05 FP NMI Diag Int  = 00 c0 00 00 OK  
+0025 SDR Comp 02 03 20 a f3 snum 06 SMI Timeout      = 00 c0 00 00 Disabled
+0026 SDR Comp 02 6f 20 a 10 snum 07 System Event Log = 00 c0 00 00 MemLogDisab
+0027 SDR Comp 02 6f 20 a 12 snum 08 System Event     = 00 c0 00 00 OK  
+0028 SDR Comp 02 6f 20 a 14 snum 09 Button           = 00 c0 00 00 OK  
+0029 SDR Comp 02 08 20 a 04 snum 40 Fan 1 Present    = 00 c0 02 00 Present
+002a SDR Comp 02 08 20 a 04 snum 41 Fan 2 Present    = 00 c0 02 00 Present
+002b SDR Comp 02 08 20 a 04 snum 42 Fan 3 Present    = 00 c0 02 00 Present
+002c SDR Comp 02 08 20 a 04 snum 43 Fan 4 Present    = 00 c0 02 00 Present
+002d SDR Comp 02 08 20 a 04 snum 44 Fan 5 Present    = 00 c0 02 00 Present
+002e SDR Comp 02 08 20 a 04 snum 45 Fan 6 Present    = 00 c0 02 00 Present
+002f SDR Comp 02 0b 20 a 04 snum 46 Fan Redundancy   = 00 c0 01 00 Redundant
+0030 SDR Comp 02 6f 20 a 08 snum 50 PS1 Status       = 00 c0 01 00 Present
+0031 SDR Comp 02 6f 20 m 07 snum 60 P1 Status        = 00 c0 80 00 ProcPresent
+0032 SDR Comp 02 6f 20 m 07 snum 61 P2 Status        = 00 c0 80 00 ProcPresent
+0033 SDR Comp 02 05 20 m 01 snum 66 P1 VRD Hot       = 00 c0 00 00 OK  
+0034 SDR Comp 02 05 20 m 01 snum 67 P2 VRD Hot       = 00 c0 00 00 OK  
+0035 SDR Comp 02 03 20 m 07 snum 68 CATERR           = 00 c0 00 00 OK  
+0036 SDR Comp 02 03 20 m 07 snum 69 CPU Missing      = 00 c0 00 00 OK  
+0037 SDR Comp 02 03 20 m 01 snum 6a IOH Therm Trip   = 00 c0 00 00 OK  
+0038 SDR Comp 02 74 2c a dc snum 1a NM Capabilities  = 00 00 00 00 NotAvailable
+0039 SDR Comp 02 6f c0 a 0d snum 02 Drv 0 Stat       = 00 c0 00 8e Ready
+003a SDR Comp 02 6f c0 a 0d snum 03 Drv 1 Stat       = 00 c0 00 80 Unused  
+003b SDR Comp 02 6f c0 a 0d snum 04 Drv 2 Stat       = 00 c0 00 80 Unused  
+003c SDR Comp 02 6f c0 a 0d snum 05 Drv 3 Stat       = 00 c0 00 80 Unused  
+003d SDR Comp 02 6f c0 a 0d snum 06 Drv 4 Stat       = 00 c0 00 80 Unused  
+003e SDR Comp 02 6f c0 a 0d snum 07 Drv 5 Stat       = 00 c0 00 80 Unused  
+003f SDR Comp 02 08 c0 a 0d snum 09 Drv 0 Pres       = 00 c0 02 80 Present
+0040 SDR Comp 02 08 c0 a 0d snum 0a Drv 1 Pres       = 00 c0 00 80 Unused  
+0041 SDR Comp 02 08 c0 a 0d snum 0b Drv 2 Pres       = 00 c0 00 80 Unused  
+0042 SDR Comp 02 08 c0 a 0d snum 0c Drv 3 Pres       = 00 c0 00 80 Unused  
+0043 SDR Comp 02 08 c0 a 0d snum 0d Drv 4 Pres       = 00 c0 00 80 Unused  
+0044 SDR Comp 02 08 c0 a 0d snum 0e Drv 5 Pres       = 00 c0 00 80 Unused  
+0045 SDR EvtO 03 19 2c 00 snum 17 SPS FW Health    = 00 00 00 00 OK  
+0046 SDR EvtO 03 18 2c 00 snum 18 NM Exception     = 00 00 00 00 OK  
+0047 SDR EvtO 03 15 2c 00 snum 19 NM Health        = 00 00 00 00 OK  
+0048 SDR EvtO 03 18 2c 00 snum 1b NM Threshold     = 00 00 00 00 OK  
+0049 SDR EvtO 03 1b 33 01 snum 01 Mem Mirr Sensor  = 00 00 00 00 OK  
+004a SDR EvtO 03 1b 33 01 snum 02 Mmry ECC Sensor  = 00 00 00 00 OK  
+004b SDR EvtO 03 1b 33 01 snum 03 PCI Lgcy Sensor  = 00 00 00 00 OK  
+004c SDR EvtO 03 1b 33 01 snum 04 PCIe Fat Sensor  = 00 00 00 00 OK  
+004d SDR EvtO 03 1b 33 01 snum 05 PCIe Cor Sensor  = 00 00 00 00 OK  
+004e SDR EvtO 03 1b 33 01 snum 06 QPI Corr Sensor  = 00 00 00 00 OK  
+004f SDR EvtO 03 1b 33 01 snum 07 QPI NonF Sensor  = 00 00 00 00 OK  
+0050 SDR EvtO 03 1b 33 01 snum 11 Mem Spar Sensor  = 00 00 00 00 OK  
+0051 SDR EvtO 03 1b 33 01 snum 12 Mirr Mod Sensor  = 00 00 00 00 OK  
+0052 SDR EvtO 03 1b 33 01 snum 13 Spar Mod Sensor  = 00 00 00 00 OK  
+0053 SDR EvtO 03 1b 33 01 snum 14 Mem Parity Snsr  = 00 00 00 00 OK  
+0054 SDR EvtO 03 1b 33 01 snum 17 QPI Fatl Sensor  = 00 00 00 00 OK  
+0055 SDR EvtO 03 1b 33 01 snum 18 QPI Fatl Sensor  = 00 00 00 00 OK  
+0056 SDR EvtO 03 1b 01 01 snum 83 BIOS Evt Sensor  = 00 00 00 00 OK  
+0057 SDR FRU  11 14 dev: 20 00 80 00 07 01 Baseboard
+0058 SDR FRU  11 1b dev: 20 01 80 00 15 01 Power Dist Board
+0059 SDR FRU  11 1b dev: 20 02 80 00 0a 01 Pwr Supply 1 FRU
+005a SDR IPMB 12 1b dev: 20 00 bf 07 01 Basbrd Mgmt Ctlr
+005b SDR IPMB 12 17 dev: c0 00 29 0f 01 HotSwap Ctlr
+005c SDR IPMB 12 0d dev: 2c 06 21 2e 01 ME
+005d SDR OEM  c0 0b Intel: 0d 01 2c 60 19 18 1a 1b 
+005e SDR OEM  c0 15 Intel: 05 46 00 04 04 01 30 40 31 41 32 42 33 43 38 44 39 45 
+005f SDR OEM  c0 32 Intel: 09 0f 10 54 14 11 88 0f 12 88 0f 13 a5 0e 14 a5 0e 15 73 0c 16 b6 0a 17 b6 0a 18 d5 09 19 bb 0a 1a bb 0a 1b d5 0a 1c 39 1e 1d 44 10 1e 44 10 
+0060 SDR OEM  c0 1e Intel: 0a 00 00 50 2d 50 2d 50 2d 50 2d 00 01 00 01 00 01 00 01 c8 32 c8 32 00 01 00 01 
+0061 SDR OEM  c0 0e Intel: 0b 01 01 23 07 10 21 90 01 01 08 
+0062 SDR OEM  c0 0e Intel: 0b 01 02 23 07 10 21 90 01 01 08 
+0063 SDR OEM  c0 0e Intel: 0b 01 04 23 07 10 21 90 01 01 08 
+0064 SDR OEM  c0 0e Intel: 0b 01 08 23 07 10 21 90 01 01 08 
+0065 SDR OEM  c0 0e Intel: 0b 01 10 23 07 10 21 90 01 01 08 
+0066 SDR OEM  c0 0e Intel: 0b 01 20 23 07 10 21 90 01 01 08 
+0067 SDR OEM  c0 0e Intel: 0b 01 40 23 07 10 21 90 01 01 08 
+0068 SDR OEM  c0 0e Intel: 0b 01 80 23 07 10 21 90 01 01 08 
+0069 SDR OEM  c0 0e Intel: 0b 02 ff 23 07 10 21 90 01 03 08 
+006a SDR OEM  c0 1a Intel: 0c 01 00 19 ff 01 02 03 20 21 64 00 41 10 04 14 26 19 2a 1e 31 23 38 
+006b SDR OEM  c0 1a Intel: 0c 01 00 19 ff 01 02 0c 20 21 64 00 41 10 04 14 28 19 2d 1e 35 23 3e 
+006c SDR OEM  c0 1a Intel: 0c 01 00 19 ff 01 02 30 20 21 64 00 41 10 04 14 2e 19 31 1e 3b 23 41 
+006d SDR OEM  c0 1a Intel: 0c 01 00 19 ff 01 02 c0 20 21 64 00 41 10 04 14 39 19 3c 1e 48 23 50 
+006e SDR OEM  c0 1a Intel: 0c 01 00 19 ff 01 02 03 20 21 64 00 41 50 04 14 32 19 37 1e 3f 23 4b 
+006f SDR OEM  c0 1a Intel: 0c 01 00 19 ff 01 02 0c 20 21 64 00 41 50 04 14 32 19 37 1e 41 23 55 
+0070 SDR OEM  c0 1a Intel: 0c 01 00 19 ff 01 02 30 20 21 64 00 41 50 04 14 37 00 37 1e 41 23 55 
+0071 SDR OEM  c0 1a Intel: 0c 01 00 19 ff 01 02 c0 20 21 64 00 41 50 04 14 46 00 37 1e 41 23 55 
+0072 SDR OEM  c0 15 Intel: 0c 01 00 19 ff 01 02 ff 20 63 64 00 42 28 40 00 00 11 
+0073 SDR OEM  c0 15 Intel: 0c 01 00 19 ff 01 02 ff 20 23 64 00 42 38 10 00 fc 00 
+0074 SDR OEM  c0 10 Intel: 0c 01 00 14 ff 01 02 ff ff 64 64 ff 00 
+0075 SDR OEM  c0 0e Intel: 0c 01 00 14 ff 01 02 ff fd 01 04 
+0076 SDR OEM  c0 1a Intel: 0c 01 01 19 ff 01 02 03 20 21 64 00 41 10 04 14 26 19 2a 1e 31 23 38 
+0077 SDR OEM  c0 1a Intel: 0c 01 01 19 ff 01 02 0c 20 21 64 00 41 10 04 14 28 19 2d 1e 35 23 3e 
+0078 SDR OEM  c0 1a Intel: 0c 01 01 19 ff 01 02 30 20 21 64 00 41 10 04 14 2e 19 31 1e 3b 23 41 
+0079 SDR OEM  c0 1a Intel: 0c 01 01 19 ff 01 02 c0 20 21 64 00 41 10 04 14 39 19 3c 1e 48 23 50 
+007a SDR OEM  c0 1a Intel: 0c 01 01 19 ff 01 02 03 20 21 64 00 41 50 04 14 32 19 37 1e 3f 23 4b 
+007b SDR OEM  c0 1a Intel: 0c 01 01 19 ff 01 02 0c 20 21 64 00 41 50 04 14 32 19 37 1e 41 23 55 
+007c SDR OEM  c0 1a Intel: 0c 01 01 19 ff 01 02 30 20 21 64 00 41 50 04 14 37 19 41 1e 55 23 64 
+007d SDR OEM  c0 1a Intel: 0c 01 01 19 ff 01 02 c0 20 21 64 00 41 50 04 14 46 19 50 1e 5a 23 64 
+007e SDR OEM  c0 15 Intel: 0c 01 01 19 ff 01 02 ff 20 62 64 00 42 28 40 00 00 01 
+007f SDR OEM  c0 15 Intel: 0c 01 01 19 ff 01 02 ff 20 24 64 00 42 38 10 00 fc 10 
+0080 SDR OEM  c0 10 Intel: 0c 01 01 14 ff 01 02 ff ff 64 64 ff 00 
+0081 SDR OEM  c0 0e Intel: 0c 01 01 14 ff 01 02 ff fd 01 04 
+0082 SDR OEM  c0 1a Intel: 0c 01 02 19 ff 01 02 03 20 21 64 00 41 10 04 14 26 19 2a 1e 31 23 38 
+0083 SDR OEM  c0 1a Intel: 0c 01 02 19 ff 01 02 0c 20 21 64 00 41 10 04 14 28 19 2d 1e 35 23 3e 
+0084 SDR OEM  c0 1a Intel: 0c 01 02 19 ff 01 02 30 20 21 64 00 41 10 04 14 2e 19 31 1e 3b 23 41 
+0085 SDR OEM  c0 1a Intel: 0c 01 02 19 ff 01 02 c0 20 21 64 00 41 10 04 14 39 19 3c 1e 48 23 50 
+0086 SDR OEM  c0 1a Intel: 0c 01 02 19 ff 01 02 03 20 21 64 00 41 50 04 14 32 19 37 1e 3f 23 4b 
+0087 SDR OEM  c0 1a Intel: 0c 01 02 19 ff 01 02 0c 20 21 64 00 41 50 04 14 32 19 37 1e 41 23 55 
+0088 SDR OEM  c0 1a Intel: 0c 01 02 19 ff 01 02 30 20 21 64 00 41 50 04 14 37 19 41 1e 55 23 64 
+0089 SDR OEM  c0 1a Intel: 0c 01 02 19 ff 01 02 c0 20 21 64 00 41 50 04 14 46 19 50 1e 5a 23 64 
+008a SDR OEM  c0 15 Intel: 0c 01 02 19 ff 01 02 ff 20 22 64 00 42 38 00 01 fb 00 
+008b SDR OEM  c0 10 Intel: 0c 01 02 14 ff 01 02 ff ff 64 64 ff 00 
+008c SDR OEM  c0 0e Intel: 0c 01 02 14 ff 01 02 ff fd 01 04 
+008d SDR OEM  c0 14 Intel: 0e 01 07 01 06 30 2a 31 2b 32 34 33 35 38 36 39 37 
+008e GetSDR error 0xca Cannot return requested number of data bytes, rlen=0
+     SDR IPMI       sensor: Power On Hours 	   = 255 hours
+sensor Cannot return requested number of data bytes

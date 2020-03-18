@@ -1,0 +1,132 @@
+#! /bin/sh
+#
+# wdt          Enable & reset the IPMI watchdog timer via cron
+#
+# chkconfig: - 91 59
+# description: wdt is a utility from ipmiutil.sf.net to configure the \
+#              IPMI watchdog timer.
+#
+# It enables watchdog for 90 second timeout, reset every 1 min (60 sec).
+# It uses the cron daemon which reads files from /etc/cron.d
+# Note that the $crond_sh variable is different for RedHat & SuSE.
+#
+### BEGIN INIT INFO
+# Provides: ipmiutil_wdt
+# Required-Start: $local_fs $remote_fs $syslog
+# Required-Stop: $local_fs $remote_fs $syslog
+# Default-Start: 3 4 5 3 4 5
+# Default-Stop:  0 1 2 6  0 1 2 6
+# Short-Description: ipmiutil watchdog timer init script
+# Description: Init script to enable and reset ipmiutil watchdog timer via cron
+### END INIT INFO
+#
+
+name=ipmiutil_wdt
+prog="/usr/bin/ipmiutil wdt"
+wdtcron=/etc/cron.d/wdt
+LOCKFILE=/var/lock/subsys/$name
+wdtlog=/var/log/$name
+wdtsec=150  # default 150 seconds for watchdog timeout (2*60 + 30)
+
+start() {
+	echo -n "Starting $prog: "
+	echo
+        # do not start if in driverless mode
+        ipmiutil cmd -k |grep "driverless" >/dev/null 2>&1
+        if [ $? -eq 0 ]; then
+           driverok=0
+        else
+           driverok=1
+        fi
+	if [ $driverok -eq 0 ]
+	then
+	   echo "No ipmi driver loaded, aborting."
+	   RETVAL=1
+	else
+	   # configure the watchdog for a 150 second timeout
+	   $prog -e -t $wdtsec  >$wdtlog
+	   RETVAL=$?
+	   if [ $RETVAL -eq 0 ]; then
+	     # restart the watchdog every 60 seconds via /etc/cron.d
+	     cat - <<%%% >$wdtcron
+* * * * *  root  $prog -r >/dev/null
+%%%
+	     # make crond re-read the /etc/cron.d
+	     $restart_cron >>$wdtlog
+	     touch $LOCKFILE
+	   fi
+	fi
+	echo
+	return $RETVAL
+}
+
+stop() {
+	echo -n "Stopping $prog: "
+	echo
+	# first disable the watchdog 
+	$prog -d  >>$wdtlog
+	RETVAL=$?
+	# now remove the wdt cron job
+	rm -f $wdtcron
+	# make crond re-read the /etc/cron.d
+    $restart_cron >>$wdtlog
+	rm -f ${LOCKFILE}
+	echo
+	return $RETVAL
+}
+
+restart() {
+  	stop
+	start
+}	
+
+get_status() { 
+    $prog
+    if [ -f ${LOCKFILE} ]; then
+        if [ -f $wdtcron ]; then
+           echo "$name is running..."
+           retval=0
+	else
+           echo "$name is not running but ${LOCKFILE} exists"
+           retval=1
+        fi
+    else
+        echo "$name is stopped"
+        retval=3
+    fi
+    return $retval
+}
+
+# Begin mainline script here
+if [ -x /bin/systemctl ]; then
+   restart_cron='systemctl restart crond.service'
+elif [ -f /etc/redhat-release ]; then
+   restart_cron='/etc/init.d/crond  restart'
+else
+   # SuSE, MontaVista, etc.
+   restart_cron='/etc/init.d/cron  restart'
+fi
+if [ ! -d /var/lock/subsys ]; then
+   LOCKFILE=/var/run/$name.pid
+fi
+
+case "$1" in
+  start)
+  	start
+	;;
+  stop)
+  	stop
+	;;
+  status)
+  	get_status
+	;;
+  restart)
+  	restart
+	;;
+  reload)
+  	restart
+	;;
+  *)
+	echo "Usage: $0 {start|stop|status|restart|reload}"
+	exit 1
+esac

@@ -1,0 +1,17 @@
+# build dopanic as a linux 2.6 module
+#
+kdir=/usr/src/linux
+basename=dopanic
+
+# gcc -Wp,-MD,${basename}.o.d -Wall -Wstrict-prototypes -Wno-trigraphs -O2 -fno-strict-aliasing -fno-common -pipe -mpreferred-stack-boundary=2 -march=pentium3 -I$kdir/include/asm-i386/mach-default -D__KERNEL__ -I$kdir/include -Wall -Wstrict-prototypes -Wno-trigraphs -O2 -fno-strict-aliasing -fno-common -pipe -mpreferred-stack-boundary=2 -march=pentium3 -I$kdir/include/asm-i386/mach-default -fomit-frame-pointer -DMODULE -c -o ${basename}.o ${basename}.c
+# gcc -Wp,-MD,${basename}.mod.o.d -Wall -Wstrict-prototypes -Wno-trigraphs -O2 -fno-strict-aliasing -fno-common -pipe -mpreferred-stack-boundary=2 -march=pentium3 -I$kdir/include/asm-i386/mach-default -D__KERNEL__ -I$kdir/include -Wall -Wstrict-prototypes -Wno-trigraphs -O2 -fno-strict-aliasing -fno-common -pipe -mpreferred-stack-boundary=2 -march=pentium3 -I$kdir/include/asm-i386/mach-default -fomit-frame-pointer -DMODULE -c -o ${basename}.mod.o ${basename}.mod.c
+# ld -m elf_i386 -r -o ${basename}.ko ${basename}.o ${basename}.mod.o 
+
+mkdir -p $kdir/drivers/char/dopanic
+cp dopanic.c   $kdir/drivers/char/dopanic
+cp Kconfig     $kdir/drivers/char/dopanic
+cp Makefile-26 $kdir/drivers/char/dopanic/Makefile
+make -C $kdir V=1 SUBDIRS=drivers/char/dopanic modules
+
+ls -l $kdir/drivers/char/dopanic/dopanic.ko
+

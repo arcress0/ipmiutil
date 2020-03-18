@@ -1,0 +1,9 @@
+#
+# Makefile for the dopanic module.
+#
+ 
+TARGET = dopanic.ko
+ 
+CONFIG_DOPANIC=m
+ 
+obj-$(CONFIG_DOPANIC) += dopanic.o

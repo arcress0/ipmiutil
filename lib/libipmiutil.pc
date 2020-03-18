@@ -1,0 +1,13 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+sysconfdir=@CONFPATH@
+statepath=@STATEPATH@
+nutuser=@RUN_AS_USER@
+
+Name: libipmiutil
+Description: Library for ipmiutil
+Version: 3.1.6
+Libs: -L${libdir} -lipmi_lanplus
+Cflags: -I${includedir}

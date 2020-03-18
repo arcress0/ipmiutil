@@ -1,0 +1,113 @@
+.TH IWDT 8 "Version 1.3: 26 Apr 2010"
+.SH NAME
+ipmiutil_wdt\- display and set WatchDog Timer parameters
+.SH SYNOPSIS
+.B "ipmiutil wdt [-acdelrtx -N node -P/-R pswd -U user -EFJTVY]"
+
+.SH DESCRIPTION
+.I ipmiutil wdt
+is a program that uses IPMI commands to
+display and set WatchDog Timer parameters.
+
+This utility can use either any available IPMI driver, or direct
+user-space IOs, or the IPMI LAN interface if \-N.
+
+This utility is an example of how to access the IPMI watchdog parameters
+directly, which allows changing the timer configuration.
+
+There is an init script provided with ipmiutil to automate the task of
+managing the watchdog timer in user-space.
+.br
+# chkconfig \-\-add ipmiutil_wdt      (skip this if no chkconfig)
+.br
+# /etc/init.d/ipmiutil_wdt start
+.br
+This sets the watchdog timer to reset the system if the wdt is not
+restarted within 90 seconds.  It creates an /etc/cron.d/wdt file to
+restart wdt every 60 seconds.
+See also ipmiutil UserGuide section 4.4 for more information.
+
+.SH OPTIONS
+Command line options are described below.
+.IP "-a N"
+Set watchdog event Action to N. Values:
+0 = No action, 1 = Hard Reset(default), 2 = Power down, 3 = Power cycle.
+.IP "-c"
+Show watchdog output in a canonical format, with a default delimiter of '|'.
+.IP "-d"
+Disables the watchdog timer.
+.IP "-e"
+Enables the watchdog timer.  The timer is not actually started, however,
+until the timer is reset.  The pre-timeout action is not enabled.
+.IP "-l"
+Set the watchdog dontLog bit to not log watchdog events in the SEL.
+.IP "-p N"
+Set watchdog Pretimeout event action to N. Values:
+0 = No action(default), 1 = SMI, 2 = NMI, 3 = Messaging Interrupt.
+If this is set to an action other than 0, the pretimeout will also
+be set to 90% of the timeout.  However, if the timeout is less than
+20 seconds, the pretimeout will not be enabled.
+.IP "-q S"
+Set watchdog pretimeout value to S seconds, rather than 90% of the timeout
+as in \-p.  The pretimeout value must be >= 5 and at least 5 seconds less
+than the timeout value.
+.IP "-r"
+Resets the watchdog timer.  This should be done every N seconds if the
+timer is running to prevent the watchdog action (usually a system reset)
+from occurring.
+.IP "-tN"
+Set the watchdog Timeout to N seconds.  The default is 120 seconds (2 minutes).
+.IP "-x"
+Causes extra debug messages to be displayed.
+.IP "-N nodename"
+Nodename or IP address of the remote target system.  If a nodename is
+specified, IPMI LAN interface is used.  Otherwise the local system
+management interface is used.
+.IP "-P/-R rmt_pswd"
+Remote password for the nodename given.  The default is a null password.
+.IP "-U rmt_user"
+Remote username for the nodename given.  The default is a null username.
+.IP "-E"
+Use the remote password from Environment variable IPMI_PASSWORD.
+.IP "-F drv_t"
+Force the driver type to one of the followng:
+imb, va, open, gnu, landesk, lan, lan2, lan2i, kcs, smb.
+Note that lan2i means lan2 with intelplus.
+The default is to detect any available driver type and use it.
+.IP "-J"
+Use the specified LanPlus cipher suite (0 thru 17): 0=none/none/none,
+1=sha1/none/none, 2=sha1/sha1/none, 3=sha1/sha1/cbc128, 4=sha1/sha1/xrc4_128,
+5=sha1/sha1/xrc4_40, 6=md5/none/none, ... 14=md5/md5/xrc4_40.
+Default is 3.
+.IP "-T"
+Use a specified IPMI LAN Authentication Type: 0=None, 1=MD2, 2=MD5, 4=Straight Password, 5=OEM.
+.IP "-V"
+Use a specified IPMI LAN privilege level. 1=Callback level, 2=User level, 3=Operator level, 4=Administrator level (default), 5=OEM level.
+.IP "-Y"
+Yes, do prompt the user for the IPMI LAN remote password.
+Alternatives for the password are \-E or \-P.
+
+
+.SH "SEE ALSO"
+ialarms(8) iconfig(8) icmd(8) idiscover(8) ievents(8) ifirewall(8) 
+ifru(8) ifruset(8) ifwum(8) igetevent(8) ihealth(8) ihpm(8)
+ilan(8) ipicmg(8) ireset(8) isel(8) isensor(8) iserial(8) isol(8) isunoem(8)
+iwdt(8) ipmiutil(8) ipmi_port(8)
+
+.SH WARNINGS
+See http://ipmiutil.sourceforge.net/ for the latest version of ipmiutil and any bug fix list.
+
+.SH COPYRIGHT
+Copyright (C) 2009  Kontron America, Inc.
+.PP
+See the file COPYING in the distribution for more details
+regarding redistribution.
+.PP
+This utility is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY.
+
+.SH AUTHOR
+.PP
+Andy Cress <arcress at users.sourceforge.net>
+.br
+

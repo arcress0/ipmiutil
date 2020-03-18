@@ -1,0 +1,278 @@
+#!/bin/sh
+#    setver - set version number for ipmiutil package
+# 
+# Usage:  setver [version] [doinc?=y/n/r]
+#    if [version] is specified, assume increment, unless
+#    [doinc?] is 'n'.
+#    if [doinc?] is 'r', reverse increment (decrement).
+#
+ver=3.1.6
+rel=1
+tmped=/tmp/edver.tmp
+tmpspec=/tmp/edspec.tmp
+cmdf=/tmp/cmd.tmp
+skipinc=0
+reverseinc=0
+
+if [ $# -gt 0 ]
+then
+  ver=$1
+  if [ "$2" = "n" ]
+  then
+     # no, skip incrementing the versions
+     skipinc=1
+  else
+     if [ "$2" = "r" ]
+     then
+	# r = reverse increment
+        reverseinc=1
+     else
+        # yes, increment the versions
+        skipinc=0
+     fi
+  fi
+fi
+v12=`echo $ver |cut -f1,2 -d'.'`
+v3=`echo $ver |cut -f3 -d'.'`
+vras=`echo $ver |sed -e 's/\.//g'`
+
+distro=`echo $MACHTYPE |cut -d'-' -f2`
+if [ "$distro" = "suse" ]
+then
+   pkgdir=/usr/src/packages
+else
+   if [ "$distro" = "hardhat" ]
+   then
+      pkgdir=/usr/src/montavista
+   else
+      # usu redhat if here
+      pkgdir=/usr/src/$distro
+   fi
+fi
+
+cat - <<%%% >$tmped
+1
+/^AM_INIT_AUTOMAKE(
+c
+AM_INIT_AUTOMAKE(ipmiutil,$ver)
+.
+w
+q
+%%%
+if [ -f configure.ac ]; then
+  sed -i "/AC_INIT(ipmiutil,/cAC_INIT(ipmiutil,$ver)" configure.ac
+  # sed -i "/INIT_AUTOMAKE(ipmiutil/cAM_INIT_AUTOMAKE(ipmiutil,$ver)" configure.ac
+else
+  ed configure.in <$tmped
+fi
+
+cat - <<%%% >$tmped
+1
+/^PKGDIR=
+c
+PKGDIR=${pkgdir}
+.
+w
+q
+%%%
+ed Makefile.am <$tmped
+
+cat - <<%%% >$tmped
+1
+/^VERSION = 
+c
+VERSION = $ver
+.
+w
+q
+%%%
+ed configure <$tmped
+
+cat - <<%%% >$tmpspec
+1
+/^Version:
+c
+Version: ${ver}
+.
+/^Release:
+c
+Release: ${rel}%{?dist}
+.
+w
+q
+%%%
+ed doc/ipmiutil.spec <$tmpspec
+
+# mk_* - scripts used for my local mods
+cat - <<%%% >$tmped
+1
+/^iver
+c
+iver=${ver}
+.
+w
+q
+%%%
+if [ -f ../buildipmiutil.sh ]
+then
+  ed ../buildipmiutil.sh   <$tmped
+fi
+
+cat - <<%%% >$tmped
+1
+/^set pkgver
+c
+set pkgver=${ver}
+.
+w
+q
+%%%
+if [ -f ../win32/src/mkzip.bat ]; then
+  ed ../win32/src/mkzip.bat   <$tmped
+fi
+if [ -f ../win32/src/mkzip32.bat ]; then
+  ed ../win32/src/mkzip32.bat   <$tmped
+fi
+if [ -f ../win32/src/mkzip64.bat ]; then
+  ed ../win32/src/mkzip64.bat   <$tmped
+fi
+
+if [ -f ../win32/mkraszip.bat ]
+then
+  cat - <<%%% >$tmped
+1
+/^set pkgver
+c
+set pkgver=${vras}
+.
+w
+q
+%%%
+  ed ../win32/mkraszip.bat   <$tmped
+fi
+
+if [ -f doc/UserGuide ]
+then
+  cat - <<%%% >$tmped
+1
+/VERSION
+c
+                     VERSION ${ver}
+.
+w
+q
+%%%
+  ed doc/UserGuide   <$tmped
+fi
+
+if [ -f ../../ipmimisc/buildmisc.sh ]
+then
+  cat - <<%%% >$tmped
+1
+/^utilver
+c
+utilver=${ver}
+.
+w
+q
+%%%
+  ed ../../ipmimisc/buildmisc.sh   <$tmped
+fi
+
+if [ -f debpkg/changelog ]; then
+  rdate=`date -R`
+  cat - <<%%% >$tmped
+1
+i
+ipmiutil (${ver}-${rel}) unstable; urgency=low
+
+  * New upstream version.
+
+ -- Andy Cress <arcress@users.sourceforge.net>  ${rdate}
+
+.
+w
+q
+%%%
+  ed debpkg/changelog   <$tmped
+fi
+
+cmdc="ifruset.c iseltime.c ievents.c idiscover.c ipmiutil.c"
+otherc="ialarms.c icmd.c iconfig.c ievents.c ifru.c igetevent.c ihealth.c 
+      ilan.c ireset.c isel.c isensor.c iserial.c isol.c iwdt.c itsol.c  
+      ipicmg.c ifirewall.c idcmi.c iuser.c iekanalyzer.c ifwum.c ihpm.c
+      oem_intel.c oem_kontron.c oem_dell.c oem_hp.c oem_sun.c oem_asus.c 
+      oem_fujitsu.c oem_lenovo.c oem_newisys.c oem_quanta.c oem_supermicro.c"
+
+if [ $skipinc -ne 1 ]
+then
+  # set each of the utility progver values to the specified version.
+  relnote=/tmp/ipmiutil.rel
+  #utilc="ipmiutil.c ialarms.c icmd.c iconfig.c igetevent.c ihealth.c 
+     #ifru.c ilan.c ireset.c isensor.c isel.c iserial.c isol.c iwdt.c
+     #ievents.c idiscover.c ipmi_port.c"
+  utilc="$cmdc"
+  echo $utilc >$cmdf
+
+  cd util
+  # echo "  ipmiutil-$ver contains:" >$relnote
+  num=0
+  for f in $utilc
+  do
+      fver=`grep "progver   = " $f |cut -f2 -d'=' |cut -f2 -d'"'`
+      fver1=`echo $fver |cut -f1 -d'.'`
+      fver2=`echo $fver |cut -f2 -d'.'`
+      if [ $reverseinc -eq 1 ]
+      then      
+          fvernew=${fver1}.`expr $fver2 - 1`
+      else
+          # fvernew=${fver1}.`expr $fver2 + 1`
+          # use the specified version from above
+          fvernew=${v12}${v3}
+      fi
+      tmpf=/tmp/$f.new
+      tag=`grep "progname  = " $f |cut -f2 -d'=' |cut -f2 -d'"'`
+      alias=`grep "int argc" $f |head -n1 |cut -f1 -d'(' |awk '{print $2}' |sed -e 's/i_/ipmiutil /'`
+      if [ "$f" = "ipmi_port.c" ]; then
+          do_incr=0
+          tag=ipmi_port
+          alias=ipmi_port
+      elif [ "$f" = "iseltime.c" ]; then
+          alias=iseltime
+          do_incr=0
+      elif [ "$f" = "ifruset.c" ]; then
+          alias=ifruset
+          do_incr=0
+      elif [ "$f" = "idiscover.c" ]; then
+          do_incr=0
+      elif [ "$f" = "iekanalyzer.c" ]; then
+          do_incr=0
+      elif [ "$f" = "ifwum.c" ]; then
+          do_incr=0
+      elif [ "$f" = "ihpm.c" ]; then
+          do_incr=0
+      else 
+          do_incr=1
+      fi
+      num=`expr $num + 1`
+      f1=`echo $f |cut -f1 -d'.'`
+      if [ $do_incr -eq 0 ]; then
+        # don't update the version 
+        fvernew=$fver
+        echo "$tag   	progver: $fvernew"
+        # echo "    $tag	($alias)  	 ver $fvernew" >>$relnote
+      else
+        # update the version automatically 
+        sed -e "s/progver   = .${fver}/progver   = \"${fvernew}/" $f >$tmpf
+        cp -f $tmpf $f
+        echo "$tag   	progver: $fvernew"
+        # echo "    $tag	($alias)  	 ver $fvernew" >>$relnote
+      fi
+  done
+  cd ..
+  # cat $relnote >>ChangeLog
+fi
+
+echo ""
+echo "Version changed to $ver, now run beforeconf.sh, then ./configure"
+

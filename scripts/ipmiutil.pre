@@ -1,0 +1,12 @@
+#!/bin/sh
+#
+# Before starting an ipmiutil service, make sure we have a driver loaded,
+# since running driverless for multi-user is not supported.
+/usr/bin/ipmiutil cmd -k 2>/dev/null |grep "driverless" >/dev/null 2>&1
+if [ $? -eq 0 ]; then
+   rv=1
+   echo "No Linux IPMI driver loaded, aborting."
+else
+   rv=0
+fi
+exit $rv

@@ -1,0 +1,96 @@
+.TH ICONFIG 8 "Version 1.4: 17 Feb 2010"
+.SH NAME
+ipmiutil_config \- list, save, and restore BMC configuration parameters
+.SH SYNOPSIS
+.B "ipmiutil config [-lpxLNUPREFJTVY] [-r file] [-s file]"
+
+.SH DESCRIPTION
+.I ipmiutil config
+is a program that uses an IPMI driver to send IPMI commands which list,
+save and restore BMC configuration parameters for LAN, Serial, PEF,
+SOL, User, Channel.  This combines the functionality of ipmiutil lan (ilan)
+and ipmiutil serial (iserial).
+Note that some of the LAN parameters cannot be restored remotely over
+the IPMI LAN, changing the configuration that is in use.
+This utility can use either the /dev/ipmi0 driver from OpenIPMI,
+the /dev/imb driver from Intel, the /dev/ipmikcs driver from valinux,
+direct user-space IOs, or the IPMI LAN interface if \-N.
+
+.SH OPTIONS
+Command line options are described below.
+
+.IP "-l"
+Lists BMC configuration parameters with a keyword, index, and its hex values.
+This is the default behavior if no options are specified.
+.IP "-r config_file"
+Restores BMC configuration from config_file, which was produced with \-s below.
+.IP "-s config_file"
+Saves BMC configuration to config_file.  This file could be edited, in certain
+cases, such as to vary the BMC IP address (LanParam 3), or to use the
+UserPassword records.  Note that lines beginning with '#' are comments
+and are ignored.
+For editing UserPassword records, convert your text value to hex format;
+for example "echo 'mypassword' |od \-t x1", and leave off the trailing 0a.
+.IP "-x"
+Causes extra debug messages to be displayed.
+.IP "-p password_to_set"
+This specifies the firmware password to set for BMC LAN access for all users
+during the restore.
+If not specified, the password configuration will not be changed, unless a
+valid UserPassword record is present in the file to be restored.
+Note that user passwords are write-only via standard IPMI commands.
+.IP "-L lan_ch_num"
+This specifies the IPMI LAN channel number used for BMC LAN.  This varies
+by platform, and can be found in the platform technical specifications.
+By default, bmcconfig scans all IPMI channels to find a LAN channel for
+BMC LAN.
+
+.IP "-N nodename"
+Nodename or IP address of the remote target system.  If a nodename is
+specified, IPMI LAN interface is used.  Otherwise the local system
+management interface is used.
+.IP "-P/-R rmt_pswd"
+Remote password for the nodename given.  The default is a null password.
+.IP "-U rmt_user"
+Remote username for the nodename given.  The default is a null username.
+.IP "-E"
+Use the remote password from Environment variable IPMI_PASSWORD.
+.IP "-F drv_t"
+Force the driver type to one of the followng:
+imb, va, open, gnu, landesk, lan, lan2, lan2i, kcs, smb.
+Note that lan2i means lan2 with intelplus.
+The default is to detect any available driver type and use it.
+.IP "-J"
+Use the specified LanPlus cipher suite (0 thru 17): 0=none/none/none,
+1=sha1/none/none, 2=sha1/sha1/none, 3=sha1/sha1/cbc128, 4=sha1/sha1/xrc4_128,
+5=sha1/sha1/xrc4_40, 6=md5/none/none, ... 14=md5/md5/xrc4_40.
+Default is 3.
+.IP "-T"
+Use a specified IPMI LAN Authentication Type: 0=None, 1=MD2, 2=MD5, 4=Straight Password, 5=OEM.
+.IP "-V"
+Use a specified IPMI LAN privilege level. 1=Callback level, 2=User level, 3=Operator level, 4=Administrator level (default), 5=OEM level.
+.IP "-Y"
+Yes, do prompt the user for the IPMI LAN remote password.
+Alternatives for the password are \-E or \-P.
+
+
+.SH "SEE ALSO"
+ipmiutil(8) ialarms(8) icmd(8) idiscover(8) ievents(8) ifru(8) igetevent(8) ihealth(8) ilan(8) ireset(8) isel(8) isensor(8) iserial(8) isol(8) iwdt(8)
+
+.SH WARNINGS
+See http://ipmiutil.sourceforge.net/ for the latest version of ipmiutil and any bug fix list.
+
+.SH COPYRIGHT
+Copyright (C) 2009  Kontron America, Inc.
+.PP
+See the file COPYING in the distribution for more details
+regarding redistribution.
+.PP
+This utility is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY.
+
+.SH AUTHOR
+.PP
+Andy Cress <arcress at users.sourceforge.net>
+.br
+

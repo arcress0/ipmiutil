@@ -1,0 +1,28 @@
+# Makefile for ipmi_sample program
+#
+TARGETS = ipmi_sample  ipmi_sample_evt 
+incl_dir = /usr/include
+CFLAGS_SAM = -O2 -g -I. -DLINUX 
+LDFLAGS = -lpthread 
+# if building without lanplus, comment out these two lines
+CFLAGS_SAM += -DHAVE_LANPLUS
+LDFLAGS += -lcrypto
+
+# see /usr/lib/libipmiutil.a
+LDFLAGS += -lipmiutil
+
+all:	$(TARGETS)
+
+ipmi_sample:	ipmi_sample.c $(incl_dir)/ipmicmd.h
+	$(CC) $(CFLAGS_SAM) -c ipmi_sample.c
+	$(CC)  -g -O2 -o ipmi_sample ipmi_sample.o $(LDFLAGS)
+
+ipmi_sample_evt:	ipmi_sample_evt.c isensor.c ievents.c 
+	$(CC) $(CFLAGS_SAM) -c ipmi_sample_evt.c
+	$(CC) $(CFLAGS_SAM) -o isensor2.o -c isensor.c 
+	$(CC) $(CFLAGS_SAM) -DSENSORS_OK -o ievents2.o -c ievents.c 
+	$(CC) -g -O2 -o ipmi_sample_evt ipmi_sample_evt.o isensor2.o ievents2.o   $(LDFLAGS) 
+
+clean-generic:   
+	rm -f $(TARGETS) *.o *.tmp
+

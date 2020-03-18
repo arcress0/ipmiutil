@@ -1,0 +1,24 @@
+# upd
+# update hpi library objects to public share
+# 
+# todir=/mnt/pub/panich/hpi/hpiutil
+todir=/mnt/pub/cress/hpi/hpiutil
+hdir=/root/hpi
+cdir=`pwd`
+
+if [ $# -ge 1 ]
+then
+  OS=$1
+else
+  OS=el3
+fi
+mkdir -p $todir/obj/$OS
+# cd $SAHPI_HOME
+cd $hdir
+cp bin/SpiLibd   $todir/obj/$OS
+cp lib/*.so*     $todir/obj/$OS
+if [ -f lib/Server ]
+then
+   cp lib/Server   $todir/obj/$OS
+fi
+cd $cdir

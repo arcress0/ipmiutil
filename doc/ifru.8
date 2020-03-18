@@ -1,0 +1,113 @@
+.TH IFRU 8 "Version 1.4: 09 Sep 2010"
+.SH NAME
+ipmiutil_fru \- show Field Replacable Unit configuration data
+.SH SYNOPSIS
+.B "ipmiutil fru [-abcdeikmsvx -N node -U user -P/-R pswd -EFJTVYZ]"
+
+.SH DESCRIPTION
+.I ipmiutil fru
+is a program that uses IPMI commands to
+show FRU configuration data and optionally
+write an asset tag string into the FRU data.
+Setting the asset tag is a function that can be
+used to uniquely identify the unit, even if the
+storage devices are removed or changed.
+This utility can use either the /dev/ipmi0 driver from OpenIPMI,
+the /dev/imb driver from Intel, the /dev/ipmikcs driver from valinux,
+direct user-space IOs, or the IPMI LAN interface if \-N.
+
+.SH OPTIONS
+Command line options are described below.
+.IP "-a asset_string"
+This option specifies an asset tag string to be written
+to the baseboard FRU Product area.  The asset tag length is
+limited by the existing FRU Product data, but is usually
+allowed up to 16 characters.  The default is to not modify this FRU field.
+.IP "-b"
+Only show the Baseboard FRU data.  The default behavior is to also scan
+for any SDR FRU data or DIMM SPD data referenced by the SDRs.
+.IP "-c"
+Show FRU output in a canonical format, with a default delimiter of '|'.
+.IP "-d file"
+Dump binary FRU data to the specified file.
+.IP "-e"
+Show Every FRU output in a bladed chassis, including those under child MCs.
+The default is to show FRUs referred to by just the target MC.
+.IP "-i 00"
+This option specifies a specific FRU ID to show.  The input value should be
+in hex (0b, 1a, etc.), as shown from the sensor SDR output.
+By default, all FRU IDs that are specified in the FRU locator SDRs are shown.
+.IP "-k <setsn | setmfgdate | nextboot>"
+These Kontron OEM functions set FRU data based on existing data stored
+elsewhere.  The setsn option sets the FRU Board and Product serial number,
+and the setmfgdate option sets the FRU Board Mfg DateTime.  The nextboot
+option specifies the boot device for the next boot:
+BIOS, FDD, HDD, CDROM, or network.
+These options are only supported on Kontron ATCA boards which have this
+functionality.
+.IP "-m 002000"
+Show FRU for a specific MC (e.g. bus 00, sa 20, lun 00).
+This could be used for PICMG or ATCA blade systems.
+The trailing character, if present, indicates SMI addressing if 's',
+or IPMB addressing if 'i' or not present.
+.IP "-s serial_num"
+This option specifies a serial number string to be written
+to the baseboard FRU Product area.  The serial number can be
+any string up to 16 characters.  The default is to not modify this FRU field.
+.IP "-v prod_ver"
+This option specifies a product version number string to be written
+to the baseboard FRU Product area.  The version number can be
+any string up to 16 characters.  The default is to not modify this FRU field.
+.IP "-x"
+Causes eXtra debug messages to be displayed.
+.IP "-N nodename"
+Nodename or IP address of the remote target system.  If a nodename is
+specified, IPMI LAN interface is used.  Otherwise the local system
+management interface is used.
+.IP "-U rmt_user"
+Remote username for the nodename given.  The default is a null username.
+.IP "-P/-R rmt_pswd"
+Remote password for the nodename given.  The default is a null password.
+.IP "-E"
+Use the remote password from Environment variable IPMI_PASSWORD.
+.IP "-F drv_t"
+Force the driver type to one of the followng:
+imb, va, open, gnu, landesk, lan, lan2, lan2i, kcs, smb.
+Note that lan2i means lan2 with intelplus.
+The default is to detect any available driver type and use it.
+.IP "-J"
+Use the specified LanPlus cipher suite (0 thru 17): 0=none/none/none,
+1=sha1/none/none, 2=sha1/sha1/none, 3=sha1/sha1/cbc128, 4=sha1/sha1/xrc4_128,
+5=sha1/sha1/xrc4_40, 6=md5/none/none, ... 14=md5/md5/xrc4_40.
+Default is 3.
+.IP "-T"
+Use a specified IPMI LAN Authentication Type: 0=None, 1=MD2, 2=MD5, 4=Straight Password, 5=OEM.
+.IP "-V"
+Use a specified IPMI LAN privilege level. 1=Callback level, 2=User level, 3=Operator level, 4=Administrator level (default), 5=OEM level.
+.IP "-Y"
+Yes, do prompt the user for the IPMI LAN remote password.
+Alternatives for the password are \-E or \-P.
+.IP "-Z"
+Set the slave address for a local MC
+
+
+.SH "SEE ALSO"
+ipmiutil(8) ialarms(8) iconfig(8) icmd(8) idiscover(8) ievents(8) igetevent(8) ihealth(8) ilan(8) ireset(8) isel(8) isensor(8) iserial(8) isol(8) iwdt(8)
+
+.SH WARNINGS
+See http://ipmiutil.sourceforge.net/ for the latest version of ipmiutil and any bug fix list.
+
+.SH COPYRIGHT
+Copyright (C) 2009  Kontron America, Inc.
+.PP
+See the file COPYING in the distribution for more details
+regarding redistribution.
+.PP
+This utility is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY.
+
+.SH AUTHOR
+.PP
+Andy Cress <arcress at users.sourceforge.net>
+.br
+

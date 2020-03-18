@@ -1,0 +1,14 @@
+[Unit]
+Description=ipmiutil Async Bridge Agent
+After=network.target
+
+[Service]
+Type=forking
+PIDFile=/run/ipmiutil_asy.pid
+EnvironmentFile=/usr/share/ipmiutil/ipmiutil.env
+ExecStartPre=/usr/share/ipmiutil/ipmiutil.pre
+ExecStart=/usr/bin/ipmiutil getevt -a -b
+
+[Install]
+WantedBy=multi-user.target
+

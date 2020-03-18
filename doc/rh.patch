@@ -1,0 +1,111 @@
+--- ipmiutil.spec.orig	2012-06-12 12:05:50.000000000 -0400
++++ ipmiutil.spec	2012-06-12 12:07:47.000000000 -0400
+@@ -7,7 +7,7 @@
+ Release:   1%{?dist}
+ Summary:   Easy-to-use IPMI server management utilities
+ License:   BSD
+-Group:     System/Management
++Group:     System Environment/Base
+ Source:    http://downloads.sourceforge.net/%{name}/%{name}-%{version}.tar.gz
+ URL:       http://ipmiutil.sourceforge.net
+ BuildRoot: %(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
+@@ -15,18 +15,9 @@
+ %if 0%{?fedora} >= 15
+ Requires: systemd-units
+ %endif
+-%if 0%{?suse_version} >= 1210
+-%define req_systemd 1
+-%endif
+-%if 0%{?req_systemd}
+-BuildRequires: openssl-devel gcc gcc-c++ libtool systemd
+-%define systemd_fls %{_unitdir}
+-# Requires: %{?systemd_requires}
+-%else
+ BuildRequires: openssl-devel gcc gcc-c++ libtool
+-%define systemd_fls %{_datadir}/%{name}
+-%endif
+-%define init_dir  %{_initrddir}
++%global systemd_fls %{_datadir}/%{name}
++%global init_dir  %{_initrddir}
+ 
+ %description
+ The ipmiutil package provides easy-to-use utilities to view the SEL,
+@@ -53,12 +44,8 @@
+ %setup -q
+ 
+ %build
+-%if 0%{?req_systemd}
+-%configure --enable-systemd
+-%else
+ %configure
+-%endif
+-make 
++make %{?_smp_mflags}
+ 
+ %install
+ rm -rf %{buildroot}
+@@ -146,11 +133,6 @@
+ %{_libdir}/libipmiutil.a
+ 
+ 
+-%pre
+-%if 0%{?req_systemd}
+-%service_add_pre ipmi_port.service ipmiutil_evt.service ipmiutil_asy.service ipmiutil_wdt.service
+-%endif
+-
+ %post
+ # POST_INSTALL, $1 = 1 if rpm -i, $1 = 2 if rpm -U
+ 
+@@ -160,9 +142,6 @@
+    vardir=%{_var}/lib/%{name}
+    scr_dir=%{_datadir}/%{name}
+ 
+-%if 0%{?req_systemd}
+-%service_add_post ipmi_port.service ipmiutil_evt.service ipmiutil_asy.service ipmiutil_wdt.service
+-%else
+    if [ -x /bin/systemctl ]; then
+       systemd_dir=%{_unitdir}
+       echo "IINITDIR=%{init_dir}" >>%{_datadir}/%{name}/ipmiutil.env
+@@ -177,7 +156,6 @@
+       cp -f ${scr_dir}/ipmiutil_evt %{init_dir}
+       cp -f ${scr_dir}/ipmi_port    %{init_dir}
+    fi
+-%endif
+ 
+    # Run some ipmiutil command to see if any IPMI interface works.
+    %{_bindir}/ipmiutil sel -v >/dev/null 2>&1
+@@ -213,9 +191,6 @@
+ # before uninstall,  $1 = 1 if rpm -U, $1 = 0 if rpm -e
+ if [ "$1" = "0" ]
+ then
+-%if 0%{?req_systemd}
+-%service_del_preun ipmi_port.service ipmiutil_evt.service ipmiutil_asy.service ipmiutil_wdt.service
+-%else
+    if [ -x /bin/systemctl ]; then
+      systemd_dir=%{_unitdir}
+      if [ -f ${systemd_dir}/ipmiutil_evt.service ]; then
+@@ -250,16 +225,12 @@
+         rm -f %{init_dir}/ipmiutil_evt 2>/dev/null
+         rm -f %{init_dir}/ipmi_port    2>/dev/null
+    fi
+-%endif
+    if [ -f %{_sysconfdir}/cron.daily/checksel ]; then
+         rm -f %{_sysconfdir}/cron.daily/checksel
+    fi
+ fi
+ 
+ %postun
+-%if 0%{?req_systemd}
+-%service_del_postun ipmi_port.service ipmiutil_evt.service ipmiutil_asy.service ipmiutil_wdt.service
+-%else
+ if [ -x /bin/systemctl ]; then
+    systemctl daemon-reload  || :
+    if [ $1 -ge 1 ] ; then
+@@ -267,7 +238,6 @@
+       systemctl try-restart ipmi_port.service  || :
+    fi
+ fi
+-%endif
+ 
+ %changelog
+ * Fri May 04 2012 Andrew Cress <arcress at users.sourceforge.net> 2.8.4-1

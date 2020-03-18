@@ -1,0 +1,66 @@
+.TH ITSOL 8 "Version 1.0: 03 Feb 2012"
+.SH NAME
+ipmiutil_tsol \- Tyan IPMIv1.5 Serial-Over-LAN Console application
+
+.SH SYNOPSIS
+.B "ipmiutil tsol [recvip] [port=NUM] [ro|rw] [rows=NUM] [cols=NUM] [altterm]
+
+.SH DESCRIPTION
+This  command  allows Serial-over-LAN sessions to be established
+with Tyan IPMIv1.5 SMDC such as the M3289 or M3290.  The default
+command run with no arguments will establish default SOL session
+back to local IP address.  Optional arguments may be supplied in
+any order.
+
+.SH OPTIONS
+
+.IP "<recv ipaddr>"
+Send  receiver  IP  address  to SMDC which it will use to
+send serial traffic to.   By  default  this  detects  the
+local IP address and establishes two-way session.  Format
+of ipaddr is XX.XX.XX.XX
+
+.IP "port"
+Configure UDP port to  receive  serial  traffic  on.
+By default this is 6230.
+
+.IP "ro|rw"
+Confiure  SOL  session  as read-only or read-write.
+Sessions are read-write by default.
+
+.IP "rows"
+Set terminal rows [default: rows=24]
+
+.IP "cols"
+Set terminal columns [default: cols=80]
+
+.IP "altterm"
+Alternate terminal setup    [default is off]
+
+
+.SH "EXAMPLES"
+ipmiutil tsol 192.168.1.1
+.br
+Starts a Tyan SOL console session to the IP address.
+.PP
+
+.SH "SEE ALSO"
+ipmiutil(8) ialarms(8) iconfig(8) icmd(8) idiscover(8) ievents(8) ifru(8) igetevent(8) ihealth(8) ilan(8) ireset(8) isel(8) isensor(8) iserial(8) iwdt(8)
+
+.SH WARNINGS
+See http://ipmiutil.sourceforge.net/ for the latest version of ipmiutil and any bug fix list.
+
+.SH COPYRIGHT
+Copyright (C) 2012  Kontron America, Inc.
+.PP
+See the file COPYING in the distribution for more details
+regarding redistribution.
+.PP
+This utility is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY.
+
+.SH AUTHOR
+.PP
+Andy Cress <arcress at users.sourceforge.net>
+.br
+

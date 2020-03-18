@@ -1,0 +1,16 @@
+# start a serial-over-lan session
+# BMC port 0x26f (=623).
+#
+if [ $# -gt 0 ]
+then
+   host=$1
+else 
+   host=telco64
+fi
+echo "Starting Serial-Over-LAN session to $host ..."
+
+# Use isolconsole application for IPMI LAN 2.0 SOL
+# If IPMI 1.5, use dpccli.
+
+ipmiutil sol -a -N $host 
+

@@ -1,0 +1,15 @@
+[Unit]
+Description=ipmiutil Event Daemon
+After=network.target
+
+[Service]
+Type=forking
+PIDFile=/run/ipmiutil_evt.pid
+EnvironmentFile=/usr/share/ipmiutil/ipmiutil.env
+ExecStartPre=/usr/share/ipmiutil/ipmiutil.pre
+ExecStart=/usr/bin/ipmiutil getevt $IPMIUTILEVTARGS 
+
+[Install]
+WantedBy=multi-user.target
+
+

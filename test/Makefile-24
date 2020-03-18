@@ -1,0 +1,63 @@
+#
+# Makefile for building the dopanic module on Linux 2.4 
+#
+
+MOD=dopanic
+MOD_CONF= $(MOD:%=%.conf)
+RHVER=RH7.1
+KVER=2.6.0
+KTAG=
+KSRC=/usr/src/linux
+# Note: /usr/src/linux should point to /usr/src/linux-$(KVER)$(KTAG).
+# The KVER is only used here for "make install".
+
+CC=gcc
+#Use the cflags that shows all warnings or the one that doesn't.
+#CFLAGS = -O2 -Wall -DLINUX_DEBUG
+CFLAGS = -O2  
+
+#Note: Use the following to build a driver with no versioning.
+#K_CFLAGS = -D__KERNEL__  -DMODULE -D__SMP__  -DCONFIG_X86_LOCAL_APIC -D__NO_VERSION__ 
+#
+#The K_CFLAGS is used to build on all RedHat systems. 
+#ADDK_CFLAGS is used only when building on pre RedHat 7.0 systems.
+#
+K_CFLAGS = -D__KERNEL__ -DMODULE  -D__SMP__ -DCONFIG_X86_LOCAL_APIC -DMODULES 
+ADDK_CFLAGS =  -DMODVERSIONS  -include /usr/include/linux/modversions.h
+
+CPPFLAGS = -I. -DLINUX -I/usr/src/linux/include
+	
+K_VERSION:=$(shell uname -r | cut -c1-3 | sed 's/2\.[56]/2\.6/') 
+ifeq ($(K_VERSION), 2.6) 
+	TARGET = dopanic.ko 
+	# CFILES = dopanic.c 
+	# dopanic-objs := $(CFILES:.c=.o) 
+	obj-m += dopanic.o 
+	make -C $(KSRC) V=1 SUBDIRS=$(shell pwd) modules 
+endif
+
+#List all the relevant files here
+OBJS = 	dopanic.o 
+
+all: $(MOD) 
+
+$(MOD): $(OBJS)
+	$(LD) -r -o $(MOD) $(OBJS) 
+
+%.o:	%.c
+	if [ "$(RHVER)" = "PRE-7.0" ]; \
+	then \
+		$(CC) -c $(CFLAGS) $(CPPFLAGS) $(K_CFLAGS) $(ADDK_CFLAGS) -o $@ $< ; \
+	else \
+		$(CC) -c $(CFLAGS) $(CPPFLAGS) $(K_CFLAGS)  -o $@ $< ; \
+	fi
+
+install: $(MOD)
+	cp $(MOD) /lib/modules/$(KVER)$(KTAG)/kernel/arch/i386/kernel
+
+clean:
+	rm -f $(OBJS) $(MOD) 
+
+clobber:
+	rm -f $(OBJS) $(MOD) 
+

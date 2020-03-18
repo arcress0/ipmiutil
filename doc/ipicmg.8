@@ -1,0 +1,157 @@
+.TH IPICMG 8 "Version 1.0: 04 Jun 2010"
+.SH NAME
+ipmiutil_picmg \- send specific PICMG extended IPMI commands
+
+.SH SYNOPSIS
+.B "ipmiutil picmg [-mixNUPREFJTVY] parameters"
+
+.SH DESCRIPTION
+This
+.I ipmiutil picmg
+subcommand sends specific PICMG/ATCA extended IPMI commands to the firmware.
+
+This utility can use either the /dev/ipmi0 driver from OpenIPMI,
+the /dev/imb driver from Intel, the /dev/ipmikcs driver from valinux,
+direct user-space IOs, or the IPMI LAN interface if \-N.
+
+.SH OPTIONS
+Command line options are described below.
+.IP "-i 00"
+This option specifies a specific FRU ID to show.  The input value should be
+in hex (0b, 1a, etc.), as shown from the sensor SDR output.
+The default FRU ID is zero (0).
+.IP "-m 002000"
+Show FRU for a specific MC (e.g. bus 00, sa 20, lun 00).
+This could be used for PICMG or ATCA blade systems.
+The trailing character, if present, indicates SMI addressing if 's',
+or IPMB addressing if 'i' or not present.
+.IP "-x"
+Causes extra debug messages to be displayed.
+.IP "-N nodename"
+Nodename or IP address of the remote target system.  If a nodename is
+specified, IPMI LAN interface is used.  Otherwise the local system
+management interface is used.
+.IP "-U rmt_user"
+Remote username for the nodename given.  The default is a null username.
+.IP "-P/-R rmt_pswd"
+Remote password for the nodename given.  The default is a null password.
+.IP "-E"
+Use the remote password from Environment variable IPMI_PASSWORD.
+.IP "-F drv_t"
+Force the driver type to one of the followng:
+imb, va, open, gnu, landesk, lan, lan2, lan2i, kcs, smb.
+Note that lan2i means lan2 with intelplus.
+The default is to detect any available driver type and use it.
+.IP "-J"
+Use the specified LanPlus cipher suite (0 thru 17): 0=none/none/none,
+1=sha1/none/none, 2=sha1/sha1/none, 3=sha1/sha1/cbc128, 4=sha1/sha1/xrc4_128,
+5=sha1/sha1/xrc4_40, 6=md5/none/none, ... 14=md5/md5/xrc4_40.
+Default is 3.
+.IP "-T"
+Use a specified IPMI LAN Authentication Type: 0=None, 1=MD2, 2=MD5, 4=Straight Password, 5=OEM.
+.IP "-V"
+Use a specified IPMI LAN privilege level. 1=Callback level, 2=User level, 3=Operator level, 4=Administrator level (default), 5=OEM level.
+.IP "-Y"
+Yes, do prompt the user for the IPMI LAN remote password.
+Alternatives for the password are \-E or \-P.
+
+.SH PARAMETERS
+\fIpicmg\fP \fBparameters\fR
+.RS
+
+.TP
+\fIproperties\fP
+Get PICMG properties may be used to
+obtain and print Extension major version information, PICMG identifier,
+FRU Device ID and Max FRU Device ID.
+
+.TP
+\fIaddrinfo\fP
+.br
+
+Get address information.  This command may return information on the Hardware
+address, IPMB-0 Address, FRU ID, Site/Entity ID, and Site/Entity Type.
+.TP
+\fIfrucontrol\fP \fBfru id\fR \fBoptions\fR
+.br
+
+Set various control options:
+.RS
+.TP
+\fI0x00\fP      - Cold Reset
+.br
+.TP
+\fI0x01\fP      - Warm Reset
+.br
+.TP
+\fI0x02\fP      - Graceful Reboot
+.br
+.TP
+\fI0x03\fP      - Issue Diagnostic Interrupt
+.br
+.TP
+\fI0x04\fP      - Quiesce [AMC only]
+.br
+.TP
+\fI0x05-0xFF\fP - Cold Reset
+.br
+.RE
+.TP
+\fIactivate\fP \fBfru id\fR
+.br
+
+Activate the specified FRU.
+.TP
+\fIdeactivate\fP \fBfru id\fR
+.br
+
+Deactivate the specified FRU.
+.TP
+\fIpolicy\fP \fIget\fP \fBfru id\fR
+.br
+
+Get FRU activation policy.
+.TP
+\fIpolicy\fP \fIset\fP \fBfru id\fR \fBlockmask\fR \fBlock\fR
+.br
+
+Set FRU activation policy.  \fBlockmask\fR is 1 or 0 to indicate action
+on the deactivation or activation locked bit respectively.  \fBlock\fR is
+1 or 0 to set/clear locked bit.
+.TP
+\fIportstate\fP \fBset\fR|\fBgetall\fR|\fBgetgranted\fR|\fBgetdenied\fR \fBparameters\fR
+.br
+
+Get or set various port states.  See usage for parameter details.
+
+
+
+.SH "EXAMPLES"
+ipmiutil picmg properties
+.br
+Gets PICMG properties from the default target address (slave address 0x20).
+.PP
+ipmiutil picmg \-N 192.168.1.1 \-U root \-P pswd addrinfo
+.br
+Gets PICMG Address Information from the specified IP address.
+
+.SH "SEE ALSO"
+ipmiutil(8) ialarms(8) iconfig(8) idiscover(8) ievents(8) ifru(8) igetevent(8) ihealth(8) ilan(8) ireset(8) isel(8) isensor(8) iserial(8) isol(8) iwdt(8)
+
+.SH WARNINGS
+See http://ipmiutil.sourceforge.net/ for the latest version of ipmiutil and any bug fix list.
+
+.SH COPYRIGHT
+Copyright (C) 2010  Kontron America, Inc.
+.PP
+See the file COPYING in the distribution for more details
+regarding redistribution.
+.PP
+This utility is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY.
+
+.SH AUTHOR
+.PP
+Andy Cress <arcress at users.sourceforge.net>
+.br
+

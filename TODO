@@ -1,0 +1,338 @@
+
+IPMIUTIL PROJECT TODO LIST:
+
+IPV6 for IPMI LAN on Windows: 
+   Currently support IPV6 on Linux, but need to implement for Windows also
+   . implement IPV6 for Windows (#ifdef WIN32 case)
+  PARTIAL in ipmiutil-3.1.4 07/18/2019 with HAVE_IPV6, not fully enabled
+
+Thread-safe changes for IPMI LAN:
+   Change ipmicmd.c/ipmilan.c to be thread-safe if accessing multiple nodes.
+   Currently it is only conditionally safe, if threads access the same node.
+   Will require adding a context struct param to the ipmi_cmd*() funcs.  
+   May need to add new thread-safe functions to retain back-compatibility.
+   PARTIAL in ipmiutil-2.9.0, multiple nodes in sequence is fixed
+   . need to change to context structure for ipmilan
+
+Add an option/variant of canonical output for CSV (delimiter = ',')
+    The current delimiter for -c is '|'
+
+More automated testing
+    Started this in ipmiutil-2.6.6 with testipmi.sh, but it could be
+    more extensive and be tested on more types of IPMI firmware.
+    PARTIAL in ipmiutil-2.6.6 with testipmi.sh
+
+SPD decoding:
+   . handle DDR4 SPD format
+   . expose SPD decoding from file/buffer, not just FRU
+   c handle DDR3 SPD 1.0 format 
+   PARTIAL in ipmiutil-2.9.1 
+
+Add additional IPMI 2.0 commands from addendum:
+   c Get/Set System Info
+   c Get/Set SEL UTC Offset (requested 4/22/13)
+   . Forwarded Command
+   PARTIAL in ipmiutil-2.8.1, adding Get/Set System Info functions
+   PARTIAL in ipmiutil-3.0.3, adding Get/Set SEL UTC Offset functions
+
+Add more DCMI 1.5 commands for NetFn 0x2C to ipmiutil 
+   .   Get/Set DCMI Configuration Parameters  (DCMI 1.5)
+   .   Get/Set Thermal Limit  (DCMI 1.5)
+
+Add support for MAC OSX AppleBMC.kext driver
+    Not yet implemented, pending some documentation from Apple.
+
+Resolve MS ipmidrv.sys WBEM access memory leak:
+   This bug has been reported to Microsoft in Oct 2012 as shown below.
+   The workaround is to use the Intel imbdrv.sys driver instead.
+   See the ipmiutil UserGuide section 5.1 for details.
+   https://sourceforge.net/p/ipmiutil/support-requests/11/
+   https://social.msdn.microsoft.com/Forums/windowsdesktop/en-US/ca4df181-7fd4-4912-83a0-5896b030e3ca/latest-version-of-microsoft-ipmi-driver-ipmidrvsys?forum=wdk
+   OPEN - no update/fix from Microsoft
+
+Remove assert() calls from lanplus code
+    Need to improve error handling and remove all assert() calls from 
+    the lib/lanplus/ code: lanplus.c lanplus_crypt.c lanplus_crypt_impl.c
+    This requires test cases for the assert instances.
+    PARTIAL in ipmiutil-2.4.0, removed 2 asserts from lanplus.c
+    PARTIAL in ipmiutil-2.7.0, removed 1 more assert from lanplus.c
+    PARTIAL in ipmiutil-2.8.8, more from lanplus_crypt.c/lanplus_crypt_impl.c
+
+Add a function to send ctl-alt-del through SOL console
+    Although this is seldom used in a serial console environment, it 
+    could be useful.  To do this, the one-character escape sequence
+    would need to be changed to a 2 character escape sequence.
+    Also need a method to insert the key sequence in the console.
+    PARTIAL in ipmiutil-2.5.0 includes the 2-character escape sequence
+		and a send_break function.
+
+------------------------------------------------------------------------------
+IPMIUTIL COMPLETED TODO TASKS:
+
+Add subcommand to consolidate user functions
+   user list        (shows max,enabled, lists all users)
+   user enable    <user_id> [chan]
+   user disable   <user_id>
+   user set name     <user_id> <username>
+   user set password <user_id> [<password>]
+   user set priv     <user_id> <priv_level> [chan]
+   COMPLETE in ipmiutil-3.0.3 03/24/2017 
+
+Test SuperMicro DIMM event logic (pending bad DIMM)
+   COMPLETE in ipmiutil-2.9.9, revised code implemented
+
+Add support for openssl-1.1.0 for fedora
+   COMPLETE in ipmiutil-3.0.1
+
+Add OEM Lenovo SEL decoding 
+   COMPLETE in ipmiutil-3.0.1
+
+Add OEM Lenovo sensor decoding 
+   COMPLETE in ipmiutil-3.0.1
+
+Add HP-UX support
+   PARTIAL in ipmiutil-2.8.4
+   COMPLETE in ipmiutil-2.9.8
+    
+stdout/stderr debug messages mixed
+   . have a variable for stderr and if -x debug, set it to stdout.
+   . implemented in util/subs.c lprintf() based on log level
+   COMPLETE in ipmiutil-2.9.7
+
+Add pkg-config support
+   COMPLETE in ipmiutil-2.9.5 (in configure.ac)
+
+Add support for a MAC OSX client
+    It should work with minor compile-time adjustments.
+    We need a system running OSX on which to build and test this.
+    Changes to compile on MACOS submitted to SVN on 04/12/2013
+    Support for AppleBMC.kext not yet implemented, pending documentation.
+    COMPLETE in ipmiutil-2.9.1
+
+Add snmptrap functionality to getevent -r example script
+   COMPLETE in ipmiutil-2.9.1
+
+Add DCMI 1.1 commands for NetFn 0x2C to ipmiutil 
+   (0xDC defines the body code)
+   The command codes under this NetFn are:
+   c   Get DCMI Capabilities Info
+   c   Get/Set Management Controller Identifier String
+   c   Get/Set Asset Tag
+   c   Get DCMI Sensor Info
+   c   Get Temperature Readings
+   c   Get Power Reading
+   c   Get/Set Power Limit
+   The remainder DCMI specified commands are from the IPMI specification
+   IMPLEMENTED in ipmiutil-2.8.1
+   COMPLETE (power options tested) in ipmiutil-2.8.4
+
+Perform retries on retries for some get/set lan parameters
+   COMPLETE in ipmiutil-2.8.1 by using set_max_kcs_loops()
+
+Add an oem_hp.c module with decode_sensor_hp() to
+   interpret HP discrete sensors with analog readings
+   COMPLETE in ipmiutil-2.8.2
+
+Add systemd scripts for ipmi_port, ipmiutil_evt, etc.
+    COMPLETE in ipmiutil-2.7.8, not default but installed in /usr/share/ipmiutil
+         ipmi_port.service, ipmiutil_evt.service,
+         ipmiutil_asy.service, ipmiutil_wdt.service
+
+Add IPv6 support 
+    There is at least one IPMI BMC that has added IPv6 support, so 
+    it would be nice to include support for it in ipmiutil.
+    Need access to a BMC that supports IPv6 for testing, or 
+    someone to help test it whose BMC supports IPv6.
+    COMPLETE in ipmiutil-2.7.8, with contribution from Rajaganesh87
+
+Add an option to 'ipmiutil fru' that discovers every child MC FRU also,
+like the isensor.c code does for fchild.
+    COMPLETE in ipmiutil-2.7.5 (ifru -e)
+
+Pass event severities to syslog, instead of just writing them as 'info'.
+    COMPLETE in ipmiutil-2.7.5
+
+Add OEM code for ekanalyzer 
+    COMPLETE in ipmiutil-2.7.0
+
+Add code for FRU multi-record area decoding and FRU PICMG records
+    COMPLETE in ipmiutil-2.7.0
+
+Add OEM code for Sun
+    COMPLETE in ipmiutil-2.7.0
+
+Add OEM code for Fujitsu
+    PARTIAL in ipmiutil-2.6.9 with iRMC S2 SEL decoding
+    COMPLETE in ipmiutil-2.7.0 with iRMC S2 LED routines
+
+Add SHA256 and Cipher Suite 17 support
+    Current max Cipher Suite ID is 14, but IPMI 2.0 Errata 4 and DCMI 1.1
+    add these.
+    COMPLETE in ipmiutil-2.6.9
+    
+Add OEM code for fwum, hpm, and oem_kontron features.
+    COMPLETE in ipmiutil-2.6.9
+
+Add more ATCA/picmg functionality.
+    Currently have std IPMI functions, plus fru and sensor and blue LED
+    capability for ATCA/picmg bladed systems.
+    Need to add some additional picmg-specific functionality, like:
+      properties     - get PICMG properties
+      addrinfo       - get address information
+      activate       - activate a FRU
+      deactivate     - deactivate a FRU
+      policy get     - get the FRU activation policy
+      policy set     - set the FRU activation policy
+      portstate get  - get port state
+      portstate set  - set port state
+      led prop       - get led properties
+      led cap        - get led color capabilities
+      led state get  - get led state
+      led state set  - set led state
+      power get      - get power level info
+      power set      - set power level
+   and firmware firewall functions
+   COMPLETE: added ipicmg.c and ifirewall.c in ipmiutil-2.6.5
+
+Add older 1.5 SOL protocol capability
+    For ipmiutil sol with IPMI 1.5, the older (Intel-only) 1.5 SOL protocol
+    is implemented and will connect, but the 1.5 SOL data packets are not
+    right yet.  This is in progress.  Note that the standard IPMI 2.0 SOL
+    protocol is entirely separate and still works fine.
+    Lower priority right now.  If you want to use this feature, email 
+         ipmiutil-developers(at)lists.sourceforge.net
+    CANCELLED - Intel 1.5 SOL is too old to matter any more. It was
+		only supported on SE7501WV2 motherboards from <=2003.
+
+Fix the API interface to /dev/ipmi0 on FreeBSD
+    This FreeBSD ipmi driver is different than Linux. 
+    We have support for ipmiutil driverless mode on FreeBSD.
+    COMPLETE in ipmiutil-2.5.2, support ipmi driver and driverless w FreeBSD 7.x
+
+Add a delimeted-output option for all utilities
+    Would make parsing the output in scripts easier.
+    08/25/08 added ':' delimiters to lan/serial config output in 2.2.0
+    PARTIAL in ipmiutil-2.2.0 - added 'ipmiutil config' 
+    DONE in ipmiutil-2.4.1 for sensor and lan canonical output with -c
+    COMPLETE in ipmiutil-2.5.0  added -c to bmchealth, fruconfig
+
+Add support for a DOS build
+    CANCELLED - use Linux boot media instead, DOS is not as good.
+
+Add detection for Windows SOL when Command Prompt window is >25 rows.
+    DONE with AnsiTerm.cpp in ipmiutil-2.5.0
+
+Build a bootable Linux CD with ipmiutil for use with other random OSs.
+    Note that with ipmiutil-1.7.5, any bootable Linux CD will do, since
+    the direct I/Os no longer require an IPMI driver.
+    We may still want to build and supply an example (like TRB or SLAX).
+    2/06/07 Built an initial SLAX CD as http://ipmiutil.sf.net/ipmiutil.iso.
+    This ISO is too big to remain posted on sourceforge.net, however.
+    Need documentation on how to build an ISO to finish this. 
+    11/21/08 posted SLAX ISO as http://ipmiutil.sf.net/FILES/newgrab.iso
+    COMPLETE 
+
+Add Solaris support
+    Needed because configuring IPMI LAN and PEF with ipmitool is too
+    complicated.  
+    COMPLETE in ipmiutil-2.3.0 for Solaris 10 bmc driver
+    
+Add output logging to ipmiutil sol
+    This is easy with stdio in Linux, but not possible in Windows without
+    adding a logging option in the code, since Windows uses the video
+    console buffer instead of stdio.
+    COMPLETE in ipmiutil-2.2.2
+
+Add support for Microsoft Windows IPMI driver
+    Currently only support Intel Windows imbdrv.sys driver.
+    Requires adding WMI infrastructure.
+    COMPLETED 09/12/08 in ipmiutil-2.2.1 for 32-bit Win2003R2
+
+Add support for remote soft reset via OpenIPMI driver
+    Currently 'ipmiutil reset -o -N' requires 'getevent -a' and the imb driver.
+    Requires adding async callback for OpenIPMI driver to getevent.c
+    COMPLETED 09/12/08 in ipmiutil-2.2.1
+
+Add a function to save/restore BMC IPMI settings
+    This would combine lan, serial, and fru parameters in a key-value-pair
+    file that could be restored automatically.
+    COMPLETED 08/25/08 in ipmiutil-2.2.0
+
+Eliminate duplication in binaries
+    Build only one Meta-command for ipmiutil, with static libs if possible.
+    Existing other commands would be sym-links or shortcuts, e.g.
+       showsel [args] => ipmiutil sel [args]
+    COMPLETED 03/31/08 in ipmiutil-2.1.0 for Linux
+
+Handle Windows command prompt terminal emulation for SOL
+    The Windows isolconsole.exe works, but the terminal emulation logic is
+    not finished.  It works ok to Linux command-line and vi, but looks
+    bad for BIOS/POST.  This is in progress.  There are other (non-open)
+    tools available for Windows (e.g. Intel dpccli) in the interim.
+    The Linux isolconsole works fine, since the terminal emulation is 
+    handled by the Linux termio.
+    COMPLETE in ipmiutil-2.0.0, no known issues
+
+Do an OS Agent for hwreset to do BMC LAN remote soft-shutdown.
+    Perhaps using an xinetd socket to not have a service always resident,
+    or sending a kill signal to init from the driver level would work.
+    i.e. kill(1,SIGINT); /*SIGINT==2*/
+    COMPLETE in ipmiutil-2.0.0 with hwreset & "getevent -a" for IMB driver.
+
+Do a configure option with/without lanplus support, since this adds so
+much size to the binary object code.
+    COMPLETE in ipmiutil-1.8.2
+
+Include IPMI v2.0 RMCP+ LAN protocol also.  
+    (IPMI 2.0 commands were previously supported, however.)
+    COMPLETE in ipmiutil-1.8.0
+
+Add more boot parameters to hwreset, for things like:
+   . hwreset: Set which device to boot from (CD, Disk, LAN/PXE, etc.)
+     COMPLETE in ipmiutil-1.7.0
+   . Forcing the boot to continue (i.e. no POST pause) - BIOS setting
+     REJECTED - too platform specific for this project, see platform vendor
+   . Set which OS/Software version/target to be downloaded for PXE (?)
+     REJECTED - too platform specific for this project, see platform vendor
+
+Make a real-time sensor monitoring tool to monitor a specified SDR for
+sensor readings every second.
+   . partially complete with sensor -i option
+   . sensor 1.39 has -L option for looping
+   COMPLETE in ipmiutil-1.7.3 (sensor 1.39) 
+
+Add encrypt/decrypt options to pefconfig & tmconfig, using RSA or DSA public 
+keys, perhaps with the gnupg.org library.
+   There is some concern about increasing the size of the utilities for 
+   encryption, when this functionality can be scripted instead.
+   POSTPONED - perhaps someone else would like to help? 
+   COMPLETE - using -E to get password from IPMI_PASSWORD environment 
+              variable works, and does not put the password in the 
+              command line or script.
+   ADDED -Y option to allow user to enter password at prompt w ipmiutil-1.9.0
+
+Improve BMC LAN functionality and diagnosis with some custom IPMI LAN logic.
+   The built-in IPMI LAN also makes the Windows version able to use it.
+   COMPLETE in ipmiutil-1.7.0 with ipmilan.c
+
+pefconfig: Fix fSOL20 logic to work on supported platforms, currently 
+    returns completion code 0x80.
+    COMPLETE in ipmiutil-1.6.5
+
+Update hpiutil source for 1.1.9 changes
+   COMPLETE in ipmiutil-1.6.3
+
+Add pre-built Windows *.exe files to the ipmiutil.sf.net home page.
+   COMPLETE in ipmiutil-1.6.3
+
+sensor: Add an option to display timestamp for this run.  Write it on each SDR line if -w is also specified.
+   COMPLETE in ipmiutil-1.5.6
+
+fruconfig: Get FRU data from all FRU devices, not just baseboard.
+   COMPLETE in ipmiutil-1.5.6
+
+Add User settings, like tmconfig has, to pefconfig
+   - added more Get User Access messages to pefconfig v1.30 in ipmiutil 1.4.9
+   - added -u option with ipmiutil 1.5.3
+   COMPLETE
+

@@ -1,0 +1,135 @@
+# mkrpm
+#    Make the rpms for hpiutil
+#
+# Reliab11 = RedHat 8.0    (rh80)
+# Reliab12 = RedHat 9.0    (rh90)
+# Reliab13 = MV CGE 2.1    (mv21)
+# Reliab14 = MV CGE 3.0    (mv30p3)
+# Reliab01 = MV CGE 3.1    (mv31p3)
+# Reliab03 = RedHat AS 2.1 (as21)
+# chapin4  = MV CGE 3.1    (mv31p4)
+# grumpy   = RedHat EL 3   (el3)
+# chesnee1 = RedHat EL 3   (el3)
+# telcoraid= SuSE UL 1.0   (ul10)
+#
+ROOT=`pwd`
+# usually /mnt/pub/panich/hpi/hpiutil
+RTARG=rpm
+RSPEC=hpiutil.spec
+RTO=$ROOT/$RTARG/usr/bin
+STO=$ROOT/$RTARG/usr/share/hpiutil
+ETO=$ROOT/$RTARG/etc/hpi
+OS=el3
+VER=`grep "^%define Version" $RSPEC |cut -f3 -d' '`
+tmpe=/tmp/ed.tmp
+rpmcmd=rpmbuild
+
+if [ $# -ge 1 ]
+then
+  OS=$1
+fi
+case $OS in
+"mv21")
+	archv=x86_pentium3
+	;;
+"mv30")
+	archv=x86_pentium3
+	;;
+"mv30wv")
+	archv=x86_pentium4
+	;;
+"mv31p4")
+	archv=x86_pentium4
+	;;
+"mv31p3")
+	archv=x86_pentium3
+	;;
+"ul10")
+	rpmcmd=rpm
+	archv=i386
+	;;
+*)
+	archv=i386
+	;;
+esac
+
+# Modify the env for EL3 & others 
+if [ "$OS" = "el3" ]
+then
+   cmt=
+else
+   cmt="#"
+fi
+cat - <<%%% >$tmpe
+1
+/LD_ASSUME_KERNEL
+c
+$cmt        export LD_ASSUME_KERNEL=2.4.1
+.
+w
+q
+%%%
+ed hpiinit.sh <$tmpe
+ed env.hpi    <$tmpe
+ed obj/env.hpi <$tmpe
+
+echo "Copying lib files to rpm, OS=$OS ..."
+mkdir -p $RTO
+mkdir -p $ROOT/$RTARG/usr/lib
+cp -uf $ROOT/obj/${OS}/SpiLibd   $RTO
+cp -uf $ROOT/obj/${OS}/*.so      $ROOT/$RTARG/usr/lib
+cp -uf $ROOT/obj/${OS}/*.so-open $ROOT/$RTARG/usr/lib
+
+# Make the matching hpiutil binaries
+cd $ROOT
+make clean
+make
+echo "Copying files for rpm, OS=$OS ..."
+mkdir -p $ETO
+mkdir -p $ROOT/$RTARG/etc/init.d
+mkdir -p $STO
+cp -uf $ROOT/hpialarmpanel $RTO
+cp -uf $ROOT/hpisensor  $RTO
+cp -uf $ROOT/hpisel     $RTO
+cp -uf $ROOT/hpifru     $RTO
+cp -uf $ROOT/hpiwdt     $RTO
+cp -uf $ROOT/hpireset   $RTO
+cp -uf $ROOT/hpiinit.sh $ETO
+cp -uf $ROOT/README         $STO
+cp -uf $ROOT/COPYING        $STO
+cp -uf $ROOT/obj/env.hpi    $STO
+cp -uf $ROOT/obj/spi-daemon.conf $ETO
+cp -uf $ROOT/obj/spi-lib.conf    $ETO
+
+
+# (new:)
+# libSaHpi.so          libSpiIpmiImb.so     libSpiModIpmi.so   SpiLibd
+# libSpiDaemonCore.so  libSpiModGeneric.so  libSpiTsdMaplx.so
+# (old:)
+# libSaHpi.so libSpiDaemonCore.so libSpiGenericMaplx.so libSpiModGeneric.so
+# libSpiModIpmi.so libSpiModMullins.so libSpiMullinsMaplx.so
+# libSpiIpmiImb.so libSpiIpmiOpenIpmi.so
+
+echo "Making hpiutil rpm ..."
+#rpmbuild -bb $RSPEC
+#HOME=`pwd`
+#export HOME
+rm -f $ROOT/$RTARG/$archv/hpiutil*.rpm
+echo "%_rpmdir  ${ROOT}/${RTARG}" > $HOME/.rpmmacros
+$rpmcmd -bb --buildroot ${ROOT}/${RTARG} $RSPEC
+rm -f $HOME/.rpmmacros
+
+# save the rpm
+rfil=$ROOT/$RTARG/$archv/hpiutil-$VER-?.$archv.rpm
+echo $OS |grep mv31p4 >/dev/null 2>&1
+if [ $? -eq 0 ]
+then
+  rfil=/usr/src/montavista/RPMS/$archv/hpiutil-$VER-?.$archv.rpm
+fi
+cp $rfil $ROOT/obj/hpiutil-$VER-$OS.$archv.rpm 
+if [ $? -eq 0 ]
+then
+  # remove the directory
+  rm -rf $ROOT/$RTARG
+fi
+

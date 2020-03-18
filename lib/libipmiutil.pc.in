@@ -1,0 +1,13 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+sysconfdir=@CONFPATH@
+statepath=@STATEPATH@
+nutuser=@RUN_AS_USER@
+
+Name: libipmiutil
+Description: Library for ipmiutil
+Version: @PACKAGE_VERSION@
+Libs: -L${libdir} -lipmi_lanplus
+Cflags: -I${includedir}

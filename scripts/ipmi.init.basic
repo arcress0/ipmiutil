@@ -1,0 +1,92 @@
+#!/bin/sh
+#
+# ipmi:      OpenIPMI Driver init script (basic only)
+# Author:    Andy Cress
+#
+# chkconfig: - 13 87
+# description: OpenIPMI Driver init script
+#
+#    Use this if the Linux distro does not provide one.
+#Sample script to install it without chkconfig:
+#=====
+#ipmisvc=/etc/init.d/ipmi
+#cp -f ipmi.init.basic  $ipmisvc
+#ln -s $ipmisvc /etc/rc0.d/K87ipmi
+#ln -s $ipmisvc /etc/rc1.d/K87ipmi
+#ln -s $ipmisvc /etc/rc6.d/K87ipmi
+#ln -s $ipmisvc /etc/rc2.d/S13ipmi
+#ln -s $ipmisvc /etc/rc3.d/S13ipmi
+#ln -s $ipmisvc /etc/rc4.d/S13ipmi
+#ln -s $ipmisvc /etc/rc5.d/S13ipmi
+#=====
+#
+rv=0
+kver=`uname -r`
+moddir=/lib/modules/$kver/kernel/drivers
+
+start() {
+  lsmod |grep ipmi_dev >/dev/null
+  if [ $? -ne 0 ]; then
+     echo "Starting OpenIPMI driver ..."
+     # load the ipmi modules, if not already loaded or builtin
+     cat /proc/kallsyms |grep ipmi_init_msghandler >/dev/null 2>&1
+     if [ $? -ne 0 ]; then
+        modprobe ipmi_msghandler
+     fi
+     cat /proc/kallsyms |grep init_ipmi_si >/dev/null 2>&1
+     if [ $? -ne 0 ]; then
+        modprobe ipmi_si  
+        rv=$?
+        if [ $rv -ne 0 ]; then
+           modprobe ipmi_si_drv # try old module name
+        fi
+     fi
+     modprobe ipmi_devintf
+     # do not start ipmi_watchdog for Supermicro
+     dmidecode |grep -A1 'Base Board' |grep -q -i Supermicro
+     if [ $? -ne 0 ]; then
+        modprobe ipmi_watchdog 2>/dev/null
+     fi
+	 if [ -f $moddir/acpi/acpi_ipmi.ko ]; then
+        modprobe acpi_ipmi  
+        modprobe power_meter  
+     fi
+  fi
+
+  maj=$(cat /proc/devices | awk '/ipmidev/{print $1}')
+  if [ "x$maj" != "x" ]; then
+      test -e /dev/ipmi0 && rm -f /dev/ipmi0
+      /bin/mknod /dev/ipmi0 c $maj 0
+  fi
+}
+
+stop() {
+  lsmod |grep ipmi_msghandler >/dev/null
+  if [ $? -eq 0 ]; then
+     echo "Stopping OpenIPMI driver ..."
+     rmmod power_meter  2>/dev/null
+     rmmod acpi_ipmi    2>/dev/null
+     rmmod ipmi_poweroff 2>/dev/null
+     rmmod ipmi_watchdog 2>/dev/null
+     rmmod ipmi_devintf  2>/dev/null
+     rmmod ipmi_si 
+     rv=$?
+     rmmod ipmi_msghandler 
+  else 
+     rv=2
+  fi
+}
+
+status() {
+  lsmod |grep ipmi
+  rv=$?
+}
+
+case "$1" in 
+  start) start ;;
+  stop)  stop ;;
+  status)  status ;;
+  *) start ;;
+esac
+
+exit $rv
