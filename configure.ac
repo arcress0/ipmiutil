@@ -57,7 +57,7 @@ LIB_DIR="/usr/lib"
 isredhat=0
 init_scripts="scripts/ipmi_port.sh scripts/ipmiutil_evt scripts/ipmiutil_asy scripts/ipmiutil_wdt"
 projdir=`pwd`
-SUBDIR_S="doc scripts lib util"
+SUBDIR_S="scripts lib util"
 os=Linux
 
 # ltmain.sh, config.sub, et al should have been created, but check to be sure.
@@ -171,7 +171,7 @@ AC_ARG_ENABLE([standalone],
 	LANPLUS_SAM="no"
 	LD_SAMX=""
 	CFLAGS="-O2"
-        SUBDIR_S="doc scripts util"
+        SUBDIR_S="scripts util"
 	if test "x$cross_compiling" = "xyes"; then
 	   # cross-compiling, so link with -static (e.g. Android ARM)
 	   CROSS_LFLAGS="-static"
@@ -180,6 +180,15 @@ AC_ARG_ENABLE([standalone],
 	fi
     fi]
     )
+
+AC_ARG_ENABLE([doc],
+    [  --enable-doc           build with documentation [[default=yes]]],
+    [enable_doc=$enableval],
+    [enable_doc=yes]
+    )
+if test "x$enable_doc" = "xyes"; then
+        SUBDIR_S="$SUBDIR_S doc"
+fi
 
 dnl build libipmiutil with sensor modules
 AC_ARG_ENABLE([libsensors],
