@@ -3652,30 +3652,32 @@ int i_sensor(int argc, char **argv)
 	   }
 	   sz = sdrdata[4] + 5;
 	 } else {
-	   ret = GetSDR(recid,&recnext,sdrdata,sizeof(sdrdata),&sz);
-	   if (fdebug)
-	       printf("GetSDR[%04x]: ret = %x, next=%x\n",recid,ret,recnext);
-	   if (ret != 0) {
-	     if (ret > 0) {  /* ret is a completion code error */
-		  fprintf(stderr,"%04x GetSDR error 0x%02x %s, rlen=%d\n",
-			recid,ret,decode_cc((ushort)0,(uchar)ret),sz);
-		  if (ret == 0xC5) {  /* lost Reservation ID, retry */
-		   /* This means that some other IPMI software has 
-		    * requested a Reservation before we finished, so
-		    * we need to refresh the Reservation ID * retry. */
-		   fDoReserve = 1;  /* get a new SDR Reservation ID */
-		   ret = GetSDR(recid,&recnext,sdrdata,sizeof(sdrdata),&sz);
-		   if (fdebug)
-		      printf("GetSDR[%04x]: ret = %x, next=%x\n",recid,ret,
-				recnext);
-		   if (ret == 0xC5) sz = 0; /*failed to get Reservation ID*/
-		  }
-	     } else fprintf(stderr,"%04x GetSDR error %d, rlen = %d\n", 
-				  recid,ret,sz);
-	     if (sz < MIN_SDR_SZ) {  /* don't have recnext, so abort */
-		  break;
-	     } /* else fall through & continue */
-	   }
+           for (int try = 0; try < 10; try++) {
+             ret = GetSDR(recid,&recnext,sdrdata,sizeof(sdrdata),&sz);
+             if (fdebug)
+               printf("GetSDR[%04x]: ret = %x, next=%x\n",recid,ret,recnext);
+             if (ret != 0) {
+               if (ret == 0xC5) {  /* lost Reservation ID, retry */
+                 /*fprintf(stderr,"%04x lost reservation retrying to get, try: %d,  %d, rlen = %d\n", recid,try,ret,sz);*/
+                 _sleep(rand() & 3000);
+                 fDoReserve = 1;
+               }
+               else {
+                 fprintf(stderr,"%04x GetSDR error %d, rlen = %d\n", recid,ret,sz);
+                 break;
+               }
+             }
+             else {
+               break;
+             }
+             if (try==9){
+               sz=0;
+              fprintf(stderr,"%04x GetSDR error %d, rlen = %d\n", recid,ret,sz);
+             }
+           }
+           if (sz < MIN_SDR_SZ) {  /* don't have recnext, so abort */
+             break;
+           } /* else fall through & continue */
 	 } /*end-else*/
 	 if (ret == 0) {  /* (ret == 0) OK, got full SDR */
 	   if (fdebug) {
