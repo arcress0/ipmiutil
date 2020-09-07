@@ -168,6 +168,9 @@ lanplus_HMAC(uint8_t        mac,
 	uint8_t *pnew;
 
 	*md_len = 0;  /*if return NULL, also return zero length*/
+	if (verbose > 2) {
+		printf("lanplus_HMAC start mac=%x\n",mac);
+	}
 	if ((mac == IPMI_AUTH_RAKP_HMAC_SHA1) ||
 		(mac == IPMI_INTEGRITY_HMAC_SHA1_96))
 		evp_md = EVP_sha1();
@@ -179,15 +182,20 @@ lanplus_HMAC(uint8_t        mac,
 #ifdef HAVE_SHA256
 		evp_md = EVP_sha256();
 #else
+		printf("lanplus_HMAC: Invalid EVP_sha256 in lanplus_HMAC\n");
 		lprintf(LOG_ERR, "Invalid EVP_sha256 in lanplus_HMAC");
 		return NULL; // assert(0);
 #endif
 	} else {
+		printf("lanplus_HMAC: Invalid mac type 0x%x in lanplus_HMAC\n",mac);
 		lprintf(LOG_ERR,"Invalid mac type 0x%x in lanplus_HMAC",mac);
 		return NULL; // assert(0);
 	}
-	mlen = 20; /* *md_len is usually not initialized */
+	mlen = 20; /* md_len is usually not initialized, default IPMI_AUTHCODE_BUFFER_SIZE=20 */
 	pnew = HMAC(evp_md, key, key_len, d, n, md, &mlen);
+	if (verbose > 2) {
+		printf("lanplus_HMAC mac=%x, pnew=%p, mlen=%d",mac,pnew,mlen);
+	}
 	*md_len = (uint32_t)mlen;
 	return(pnew);
 }
@@ -244,7 +252,10 @@ lanplus_encrypt_aes_cbc_128(const uint8_t * iv,
 	 * data is perfectly aligned. We would like to keep that from happening.
 	 * We have made a point to have our input perfectly padded.
 	 */
-	assert((input_length % IPMI_CRYPT_AES_CBC_128_BLOCK_SIZE) == 0);
+	// assert((input_length % IPMI_CRYPT_AES_CBC_128_BLOCK_SIZE) == 0);
+	if ((input_length % IPMI_CRYPT_AES_CBC_128_BLOCK_SIZE) != 0) {
+		 os_assert("lanplus_encrypt_aes_cbc_128"); /**/
+	}
 	inlen = input_length;
 
 	if(!EVP_EncryptUpdate(pctx, output, &nwritten, input, inlen))
@@ -324,7 +335,10 @@ lanplus_decrypt_aes_cbc_128(const uint8_t * iv,
 	 * data is perfectly aligned. We would like to keep that from happening.
 	 * We have made a point to have our input perfectly padded.
 	 */
-	assert((input_length % IPMI_CRYPT_AES_CBC_128_BLOCK_SIZE) == 0);
+	// assert((input_length % IPMI_CRYPT_AES_CBC_128_BLOCK_SIZE) == 0);
+	if ((input_length % IPMI_CRYPT_AES_CBC_128_BLOCK_SIZE) != 0) {
+		 os_assert("lanplus_decrypt_aes_cbc_128"); /**/
+	}
 	inlen = input_length;
 
 	if (!EVP_DecryptUpdate(pctx, output, &nwritten, input, inlen))

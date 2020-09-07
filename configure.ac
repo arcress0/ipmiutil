@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT(ipmiutil,3.1.6)
+AC_INIT(ipmiutil,3.1.7)
 AC_CONFIG_SRCDIR(util/ipmiutil.c)
 echo "ipmiutil version ${PACKAGE_VERSION}"
 AC_CONFIG_HEADERS(config.h)

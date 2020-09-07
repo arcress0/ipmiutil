@@ -155,6 +155,14 @@ int lanplus_rakp2_hmac_matches(const struct ipmi_session * session,
 	/* ROLEm */
 	buffer[56] = session->v2_data.requested_role;
 
+ 	if (ipmi_oem_active(intf, "i82571spt")) {
+		/* The HMAC calculation code in the Intel 82571 GbE
+		 * skips this bit!  Looks like a GbE bug, but we need
+		 * to work around it here anyway... */
+		buffer[56] &= ~0x10;
+		if (verbose > 2) printf("bitmask for i82571spt\n");
+	}
+
 	/* ULENGTHm */
 	buffer[57] = (uint8_t)strlen((const char *)session->username);
 
@@ -164,7 +172,9 @@ int lanplus_rakp2_hmac_matches(const struct ipmi_session * session,
 
 	if (verbose > 2)
 	{
-		lprintf(LOG_DEBUG,"rakp2 mac input buffer (%d bytes)", bufferLength);
+		// lprintf(LOG_DEBUG,"rakp2 mac input buffer (%d bytes)", bufferLength);
+		printbuf((const uint8_t *)buffer, bufferLength, ">> rakp2 mac input buffer");
+		printbuf((const uint8_t *)session->authcode, IPMI_AUTHCODE_BUFFER_SIZE, ">> rakp2 mac key");
 	}
 
 	/*
@@ -179,7 +189,7 @@ int lanplus_rakp2_hmac_matches(const struct ipmi_session * session,
 				 &macLength);
 
 	free(buffer);
-
+	buffer = NULL;
 
 	if (verbose > 2)
 	{

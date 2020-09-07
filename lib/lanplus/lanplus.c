@@ -32,18 +32,19 @@
 /* ARCress, TODO: improve error handling and remove all assert() calls here. */
 
 #ifdef WIN32
-#ifdef HAVE_IPV6
-#include <winsock2.h>
-//#include <ws2tcpip.h>
-#else
-#include <winsock.h>
-#endif
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes-win.h>
 #include <io.h>
 #include <signal.h>
+//#define HAVE_IPV6  1
+#ifdef HAVE_IPV6
+#include <winsock2.h>
+//#include <ws2tcpip.h>
+#else
+#include <winsock.h>
+#endif
 #include <time.h>
 #else
 #include <stdlib.h>
@@ -102,11 +103,7 @@ static int my_ai_flags = AI_NUMERICSERV; /*0x0400 Dont use name resolution NEW*/
 #undef HAVE_IPV6
 #endif
 #ifdef HAVE_IPV6
-#ifdef WIN32
-#define SOCKADDR_T  SOCKADDR_STORAGE
-#else
 #define SOCKADDR_T  struct sockaddr_storage
-#endif
 #else
 #define SOCKADDR_T  struct sockaddr_in
 #endif
@@ -1096,6 +1093,16 @@ read_open_session_response(struct ipmi_rs * rsp, int offset)
 }
 
 
+/* os_assert - wrapper to prevent calling assert in Windows */
+void os_assert(char *msg)
+{
+    printf("ASSERT ERROR: %s\n",msg);
+#ifdef WIN32
+    exit(1);
+#else
+    assert(0);
+#endif
+}
 
 /*
  * read_rakp2_message
@@ -1183,7 +1190,7 @@ read_rakp2_message(
 
 	 default:
 		 lprintf(LOG_ERR, "read_rakp2_message: no support for authentication algorithm 0x%x", auth_alg);
-		 assert(0); /*void routine*/
+		 os_assert("read_rakp2_message"); /*void routine*/
 		 break;
 	 }
 }
@@ -1263,7 +1270,7 @@ read_rakp4_message(
 	 default:
 		 lprintf(LOG_ERR, "read_rakp4_message: no support "
 			 "for authentication algorithm 0x%x", auth_alg);
-		 assert(0); /*void routine*/
+		 os_assert("read_rakp4_message"); /*void routine*/
 		 break;	 
 	 }
 }
@@ -2919,7 +2926,8 @@ ipmi_lanplus_send_ipmi_cmd(
 	// v2_payload.payload_length = 7 + req->msg.data_len; /*initial ++++*/
 	v2_payload.payload.ipmi_request.request = req;
 		
-	// if (verbose > 2) lprintf(LOG_INFO,"ipmi cmd payload");  /*++++*/
+	// if (verbose > 2) 
+	lprintf(LOG_NOTICE,"ipmi cmd before payload, len=%d\n",v2_payload.payload_length);  /*++++*/
 	return ipmi_lanplus_send_payload(intf, &v2_payload);
 }
 
@@ -3234,6 +3242,7 @@ ipmi_lanplus_open_session(struct ipmi_intf * intf)
 		}
 
 	}
+	lprintf(LOG_NOTICE,"ipmi_lanplus_open_session complete rc=%d\n", rc);  //++++
 
 	return rc;
 }
@@ -3657,6 +3666,7 @@ ipmi_lanplus_open(struct ipmi_intf * intf)
 	session = intf->session;
 
 
+        lprintf(LOG_NOTICE, "ipmi_lanplus_open started\n");  //++++
 	if (!session->port)
 		session->port = IPMI_LANPLUS_PORT;
 	if (!session->privlvl)
@@ -3706,7 +3716,7 @@ ipmi_lanplus_open(struct ipmi_intf * intf)
 #endif
 
 #ifdef HAVE_IPV6
-	session->addrlen = 0; 
+        session->addrlen = 0; 
 	memset(&session->addr, 0, sizeof(session->addr));
 	memset(&addr, 0, sizeof(addr));
 	sprintf(service, "%d", session->port);
@@ -3717,10 +3727,10 @@ ipmi_lanplus_open(struct ipmi_intf * intf)
 	hints.ai_flags    = my_ai_flags;
 	hints.ai_protocol = IPPROTO_UDP; /*  */
 
-	rc = getaddrinfo((char *)session->hostname, service, &hints, &result);
+        rc = getaddrinfo((char *)session->hostname, service, &hints, &result);
 	if (rc != 0) {
-	        lprintf(LOG_ERR, "Address lookup for %s failed with %d, %s",
-	                session->hostname,rc,gai_strerror(rc));
+	        lprintf(LOG_ERR, "Address lookup for %s failed with %d",
+	                session->hostname,rc);
 	        return -1;
 	}
 
@@ -3728,24 +3738,24 @@ ipmi_lanplus_open(struct ipmi_intf * intf)
 	 * Try each address until we successfully connect(2).
 	 */
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
-		intf->fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-		if (intf->fd == -1) continue;
+	        intf->fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+	        if (intf->fd == -1) continue;
 		/* valid protocols are IPPROTO_UDP, IPPROTO_IPV6 */
 		if (rp->ai_protocol == IPPROTO_TCP) continue;  /*IPMI != TCP*/
 		lprintf(LOG_DEBUG, "lanplus socket(%d,%d,%d), connect(%d)",
 			rp->ai_family, rp->ai_socktype, rp->ai_protocol,
 			intf->fd );
-		if (connect(intf->fd, rp->ai_addr, rp->ai_addrlen) != -1) {
+	        if (connect(intf->fd, rp->ai_addr, rp->ai_addrlen) != -1) {
 			lprintf(LOG_DEBUG, "lanplus connect ok, addrlen=%d size=%d",
 				rp->ai_addrlen,sizeof(addr)); 
-				addrlen = rp->ai_addrlen;
-			memcpy(&addr, rp->ai_addr, addrlen);
-			// memcpy(&session->addr, rp->ai_addr, rp->ai_addrlen);
-			session->addrlen = rp->ai_addrlen;
-			break;  /* Success */
-		}
-		close(intf->fd);
-		intf->fd = -1;
+			addrlen = rp->ai_addrlen;
+	                memcpy(&addr, rp->ai_addr, addrlen);
+	                // memcpy(&session->addr, rp->ai_addr, rp->ai_addrlen);
+	                session->addrlen = rp->ai_addrlen;
+	                break;  /* Success */
+	        }
+	        close(intf->fd);
+	        intf->fd = -1;
 	}
 	freeaddrinfo(result);  /* Done with addrinfo */
 	if (intf->fd < 0) {
@@ -3914,7 +3924,7 @@ void test_crypt1(void)
 								&bytes_encrypted))
 	{
 		lprintf(LOG_ERR, "Encrypt test failed");
-		assert(0);  /*assert for testing*/
+		os_assert("test_crypt1");  /*assert for testing*/
 	}
 	printbuf(encrypt_buffer, bytes_encrypted, "encrypted payload");
 	
@@ -3927,7 +3937,7 @@ void test_crypt1(void)
 								&bytes_decrypted))
 	{
 		lprintf(LOG_ERR, "Decrypt test failed\n");
-		assert(0);  /*assert for testing*/
+		os_assert("test_crypt1");  /*assert for testing*/
 	}	
 	printbuf(decrypt_buffer, bytes_decrypted, "decrypted payload");
 	
@@ -4020,6 +4030,7 @@ ipmi_lanplus_keepalive(struct ipmi_intf * intf)
 static int ipmi_lanplus_setup(struct ipmi_intf * intf)
 {
 
+	lprintf(LOG_NOTICE, "ipmi_lanplus_setup started"); //++++
 	if (lanplus_seed_prng(16)) {
 		lprintf(LOG_ERR, "lanplus_seed_prng failure");
 		return -1;
@@ -4031,6 +4042,7 @@ static int ipmi_lanplus_setup(struct ipmi_intf * intf)
 		return -1;
 	}
 	memset(intf->session, 0, sizeof(struct ipmi_session));
+	lprintf(LOG_NOTICE, "ipmi_lanplus_setup complete"); //++++
 	return 0;
 }
 

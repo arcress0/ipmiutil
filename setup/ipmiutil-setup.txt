@@ -1,0 +1,52 @@
+Composition of the ipmiutil-setup windows MSI 
+
+Application folder
+
+buildsamp.cmd
+checksel.cmd
+getopt.h
+ialarms.cmd
+icmd.cmd
+iconfig.cmd
+idiscover.cmd
+ievents.exe
+ifru.cmd
+igetevent.cmd
+ihealth.cmd
+ilan.cmd
+install.vbs
+ipmi_sample.c
+ipmi_sample.exe
+ipmi_sample.mak
+ipmicmd.h
+ipmiutil.exe
+ipmiutil.lib
+ipmiutil_wdt.cmd
+ipmiutillib.lib
+ireset.cmd
+isel.cmd
+isensor.cmd
+iserial.cmd
+isol.cmd
+iwdt.cmd
+showsel.reg
+uninstall.vbs
+UserGuide.txt
+
+
+System folder
+
+ipmiutil.dll
+ipmiutillib.dll
+libeay32.dll
+showselmsg.dll
+ssleay32.dll
+
+In the Solution, right click to add actions under:
+  Install  = install.vbs
+  Uninstall = uninstall.vbs
+
+
+How to view Installer project properties, like version, manufacturer:
+Change View to make sure Properties button is enabled.
+

@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.28922.388
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{54435603-DBB4-11D2-8724-00A0C9A8B90C}") = "ipmiutil-setup", "ipmiutil-setup.vdproj", "{42EA52F4-4751-41F4-BEE0-8CB60D5B1EEF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Default = Debug|Default
+		Release|Default = Release|Default
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{42EA52F4-4751-41F4-BEE0-8CB60D5B1EEF}.Debug|Default.ActiveCfg = Release
+		{42EA52F4-4751-41F4-BEE0-8CB60D5B1EEF}.Debug|Default.Build.0 = Release
+		{42EA52F4-4751-41F4-BEE0-8CB60D5B1EEF}.Release|Default.ActiveCfg = Release
+		{42EA52F4-4751-41F4-BEE0-8CB60D5B1EEF}.Release|Default.Build.0 = Release
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {1121B105-CEA9-431E-8A4D-1DA9C0C78CEB}
+	EndGlobalSection
+EndGlobal

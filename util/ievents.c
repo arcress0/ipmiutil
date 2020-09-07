@@ -80,7 +80,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 extern char *progver;  /*from ipmiutil.c*/
 static char * progname  = "ipmiutil events";
 #else
-static char *progver   = "3.16";
+static char *progver   = "3.17";
 static char *progname  = "ievents";
 #endif
 static char fsensdesc = 0;   /* 1= get extended sensor descriptions*/

@@ -57,7 +57,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ipmiutil.h"
 
 static char *progname  = "ipmiutil";
-char *progver   = "3.16";
+char *progver   = "3.17";
 // static char fdebug = 0;
 /*int ipmiutil(int argc, char **argv); */
 

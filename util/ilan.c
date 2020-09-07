@@ -1796,7 +1796,7 @@ GetAdapters ()
     printf ("Call to GetAdaptersAddresses failed.\n");
     if (FormatMessage (FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, RetVal, MAKELANGID (LANG_NEUTRAL, SUBLANG_DEFAULT),	// Default language
 		       (LPTSTR) & MsgBuf, 0, NULL)) {
-      printf ("\tError: %s", MsgBuf);
+      printf ("\tError: %s", (char *)MsgBuf);
     }
     LocalFree (MsgBuf);
   }
@@ -1884,7 +1884,7 @@ GetFirstIP (uchar * ipaddr, uchar * macadr, char *ipname, char fdbg)
       if (ipname != NULL) {
 	wcstombs (ipname, AdapterList->FriendlyName, sizeof (ifname));
 	if (fdbg)
-	  printf ("found Adapter: %d\n", ipname);
+	  printf ("found Adapter: %s\n", ipname);
       }
       result = 0;
       break;
@@ -2846,7 +2846,7 @@ SetSubnetMask ()
     else {
       if (FormatMessage (FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, dwRetVal, MAKELANGID (LANG_NEUTRAL, SUBLANG_DEFAULT),	// Default language
 			 (LPTSTR) & lpMsgBuf, 0, NULL)) {
-	printf ("\tError: %s", lpMsgBuf);
+	printf ("\tError: %s", (char *)lpMsgBuf);
       }
 
       printf ("Call to GetIpAddrTable failed.\n");

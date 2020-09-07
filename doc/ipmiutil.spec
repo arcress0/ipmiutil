@@ -3,7 +3,7 @@
 # Copyright (c) 2012 Andy Cress
 #
 Name:      ipmiutil
-Version: 3.1.6
+Version: 3.1.7
 Release: 1%{?dist}
 Summary:   Easy-to-use IPMI server management utilities
 License:   BSD

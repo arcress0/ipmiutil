@@ -762,7 +762,7 @@ int i_sel(int argc, char **argv)
       ipath = getenv("ipmiutildir");  /*ipmiutil directory path*/
       if (ipath != NULL) {
 	  if (strlen(ipath)+8 < sizeof(idxfile)) {
-	     sprintf(idxfile,"%s\\%s",ipath,"\\",IDXFILE);
+	     sprintf(idxfile,"%s\\%s",ipath,IDXFILE);
 	  }
       }
    }

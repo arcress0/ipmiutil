@@ -157,16 +157,16 @@ unsigned int baseAddr;
 
 // SMBus 1.0
 #define AMD_SMB_1_STATUS                0x00 // SMBus global status
-#define AMD_SMB_1_STATUS_SMBS_BSY       (1<11)
-#define AMD_SMB_1_STATUS_SMBA_STS       (1<10)
-#define AMD_SMB_1_STATUS_HSLV_STS       (1<9)
-#define AMD_SMB_1_STATUS_SNP_STS        (1<8)
-#define AMD_SMB_1_STATUS_TO_STS         (1<5)
-#define AMD_SMB_1_STATUS_HCYC_STS       (1<4)
-#define AMD_SMB_1_STATUS_HST_BSY        (1<3)
-#define AMD_SMB_1_STATUS_PERR_STS       (1<2)
-#define AMD_SMB_1_STATUS_COL_STS        (1<1)
-#define AMD_SMB_1_STATUS_ABRT_STS       (1<0)
+#define AMD_SMB_1_STATUS_SMBS_BSY       (1<<11)
+#define AMD_SMB_1_STATUS_SMBA_STS       (1<<10)
+#define AMD_SMB_1_STATUS_HSLV_STS       (1<<9)
+#define AMD_SMB_1_STATUS_SNP_STS        (1<<8)
+#define AMD_SMB_1_STATUS_TO_STS         (1<<5)
+#define AMD_SMB_1_STATUS_HCYC_STS       (1<<4)
+#define AMD_SMB_1_STATUS_HST_BSY        (1<<3)
+#define AMD_SMB_1_STATUS_PERR_STS       (1<<2)
+#define AMD_SMB_1_STATUS_COL_STS        (1<<1)
+#define AMD_SMB_1_STATUS_ABRT_STS       (1<<0)
 #define AMD_SMB_1_STATUS_ALL_ERRS        AMD_SMB_1_STATUS_TO_STS|AMD_SMB_1_STATUS_HST_BSY|AMD_SMB_1_STATUS_PERR_STS|AMD_SMB_1_STATUS_COL_STS
 #define AMD_SMB_1_CTL                   0x02 // SMBus global control
 #define AMD_SMB_1_CTL_SMBA_EN           (1<<10)

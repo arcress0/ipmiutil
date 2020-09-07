@@ -8,6 +8,6 @@ nutuser=@RUN_AS_USER@
 
 Name: libipmiutil
 Description: Library for ipmiutil
-Version: 3.1.6
+Version: 3.1.7
 Libs: -L${libdir} -lipmi_lanplus
 Cflags: -I${includedir}

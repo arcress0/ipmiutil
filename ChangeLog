@@ -4370,15 +4370,26 @@ wdt.8          iwdt.8       (ipmiutil wdt)
   buildmin.cmd            - detect/set MARCH=IA86 or X64 for minimal
   Windows EXEs built with openssl 1.0.2
 
-03/15/2020 ARCress ipmiutil-3.1.6  changes (iver 3.16)
-   util/iconfig.c          - fix Fedora bug 1811462 [abrt] ipmiutil config -a
-   util/ipmiutil.c         - show version with usage (-?) if no subcommand
-   doc/ipmiutil.spec       - renamed ipmiutil.env as .env.template
-                            (contributed by mwilliams<at>illuminate.solutions)
-   scripts/ipmiutil.env.template - renamed env as template
-   scripts/Makefile.am     - renamed env as template
-   scripts/checksel        - after isel -d, also rm -f $ddir/sel.idx
-                             (contributed by eguzovsky<at>gmail.com)
-   doc/Makefile.am         - change gzip -f to gzip -nf for man pages
-                             (SF_SR#40 patch from Jeremy Puhlman)
+03/12/2020 ARCress ipmiutil-3.1.6  changes (iver 3.16)
+  util/iconfig.c          - fix Fedora bug 1811462 [abrt] ipmiutil config -a
+  util/ipmiutil.c         - show version with usage in -h case
+  scripts/ipmiutil.env.template - renamed env as template
+			    (contributed by mwilliams<at>illuminate.solutions)
+  scripts/Makefile.am     - renamed env as template 
+  scripts/checksel	  - also rm -f $ddir/sel.idx after isel -d
+			    (contributed by eguzovsky<at>gmail.com)
+  doc/Makefile.am     	  - change gzip -f to gzip -nf for man pages
+			    (SR#40 patch from Jeremy Puhlman)
 
+08/31/2020 ARCress ipmiutil-3.1.7  changes (iver 3.17)
+  setup/*          - added Win msi setup files
+  lib/lanplus/lanplus.c   - revert WIN IPv6 changes, add os_assert routine
+  lib/lanplus/lanplus_crypt.c - switch assert to os_assert
+  lib/lanplus/lanplus_crypt_implc.c - switch assert to os_assert
+  util/ipmidir.h	  - AMD_SMB_1_STATUS_* 1< to 1<<  (SF_SR#41)
+  util/isel.c             - fix compile warning
+  util/ilan.c             - fix compile warning
+  configure.ac    - add --enable-doc option to allow not building documentation
+  		    contributed by Fabrice Fontaine (ffontaine)
+  util/isensor.c  - add SDR conflict 0xC5 handling retries with delay
+   		    contributed by albertlav

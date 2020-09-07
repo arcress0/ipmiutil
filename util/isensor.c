@@ -3652,14 +3652,15 @@ int i_sensor(int argc, char **argv)
 	   }
 	   sz = sdrdata[4] + 5;
 	 } else {
-           for (int try = 0; try < 10; try++) {
+	   int try;
+           for (try = 0; try < 10; try++) {
              ret = GetSDR(recid,&recnext,sdrdata,sizeof(sdrdata),&sz);
              if (fdebug)
                printf("GetSDR[%04x]: ret = %x, next=%x\n",recid,ret,recnext);
              if (ret != 0) {
                if (ret == 0xC5) {  /* lost Reservation ID, retry */
                  /*fprintf(stderr,"%04x lost reservation retrying to get, try: %d,  %d, rlen = %d\n", recid,try,ret,sz);*/
-                 _sleep(rand() & 3000);
+		 os_usleep((rand() & 3000), 0); //_sleep(rand() & 3000);
                  fDoReserve = 1;
                }
                else {
