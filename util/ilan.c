@@ -3,12 +3,13 @@
  *
  * Author:     arcress at users.sourceforge.net
  * Copyright (c) 2009 Kontron America, Inc.
+ * Copyright (c) 2001-2008, Intel Corporation
  *
  * Abstract:
- * This tool sets up the custom Platform Event Filter for the panicSEL 
+ * This module configures the various IPMI LAN parameters.
+ * It also sets up the custom Platform Event Filter for the panicSEL 
  * record (0x20, OS Critical Stop) to send a PEF SNMP alert for Linux
- * panics.  It also configures the BMC LAN parameters, which are needed 
- * to support PEF alerts.
+ * panics.  
  *
  * ----------- Change History -----------------------------------------------
  * 10/16/01 Andy Cress - created
@@ -335,6 +336,8 @@ static int ngood = 0;		/* number of good results */
 static int lasterr = 0;		/* value of the last error */
 static char fCustomPEF = 0;	/* =1 if -j to input a custom PEF record */
 static char fSetPEFOks = 0;	/* =1 if -k to set PEF OK rules */
+static char fGranular = 0;	/* =1 if want to skip setting SOL & params 10-15 */
+static char fSkipGwyMAC = 0;	/* =1 do not try to set gateway MAC */
 static char fdisable = 0;
 static char fenable = 0;	/* =1 to config BMC LAN and PEF */
 static char fpefenable = 0;	/* =1 enable PEF if Alert Dest is specified */
@@ -1184,6 +1187,12 @@ SetLanEntry (uchar subfunc, LAN_RECORD * pLanRecord, int reqlen)
   int status;
   uchar completionCode;
 
+  if (fGranular == 1) {  /* if -W skip some lan parameters */
+    if (subfunc >= 10 && subfunc <= 15 ) {
+        if (fdebug) printf ("SetLanEntry(%d) skipped due to -W\n", subfunc);
+        return(0);
+    }
+  }
   if (pLanRecord == NULL) {
     if (fdebug)
       printf ("SetLanEntry(%d): error, input buffer is NULL\n", subfunc);
@@ -2550,7 +2559,8 @@ Get_Mac (uchar * ipadr, uchar * macadr, char *nodname)
       printf (" (ERROR_INVALID_USER_BUFFER)\n");
       break;
     case ERROR_BAD_NET_NAME:
-      printf (" (ERROR_GEN_FAILURE)\n");
+      memcpy (macadr, rggwymac, MAC_LEN);
+      printf (" (ERROR_BAD_NET_NAME)\n");
       break;
     case ERROR_BUFFER_OVERFLOW:
       printf (" (ERROR_BUFFER_OVERFLOW)\n");
@@ -3310,7 +3320,7 @@ Get_IPMac_Addr ()
   }
   else
     fgetmac = 1;
-  if (fgetmac && IpIsValid (rggwyip) && !MacIsValid (rggwymac))
+  if (fgetmac && IpIsValid(rggwyip) && !MacIsValid(rggwymac))
     Get_Mac (rggwyip, rggwymac, NULL);	/*gwy mac not specified, so get mac */
 
   /* Get the Alert Destination IP */
@@ -3424,7 +3434,7 @@ Get_IPMac_Addr ()
 	}
       }				/*endif local */
     }
-    if (!MacIsValid (rgdestmac)) {	/* if MAC not vaild or user-specified */
+    if (!MacIsValid(rgdestmac)) {	/* if MAC not vaild or user-specified */
       /* Use arping to get MAC from alertname or IP */
       Get_Mac (rgdestip, rgdestmac, alertname);
     }
@@ -3697,7 +3707,7 @@ GetSerialOverLan (uchar chan, uchar bset, uchar block)
     }
   }
   if (fIPMI20) {
-    if (vend_id != VENDOR_IBM) {
+    if ((vend_id != VENDOR_IBM) && (vend_id != VENDOR_MITAC)) {
       /* IBM 0x00DC returns invalid cmd for SOL Payload commands. */
       if (!fcanonical) {
 	requestData[0] = chan;
@@ -3793,6 +3803,10 @@ SetupSerialOverLan (int benable)
   ushort getsolcmd;
   uchar bchan, b;
 
+  if (fGranular == 1) {
+    if (fdebug) printf ("SetupSerialOverLan(%d) skipped due to -W\n",benable);
+    return(0);
+  }
   if (fIPMI20 && fSOL20) {
     setsolcmd = SET_SOL_CONFIG2;
     getsolcmd = GET_SOL_CONFIG2;
@@ -4097,7 +4111,7 @@ main(int argc, char **argv)
   /* available opt chars: y O Q + = ~ _ */
   while ((c =
 	  getopt (argc, argv,
-		  "a:b:cdef:gh:i:j:klm:n:op:q:rstu:v:w:xy:z#::A:B:C:DEF:G:H:I:J:K:L:M:N:OP:Q:R:S:T:U:V:X:YZ:?"))
+		  "a:b:cdef:gh:i:j:klm:n:op:q:rstu:v:w:xy:z#::A:B:C:DEF:G:H:I:J:K:L:M:N:OP:Q:R:S:T:U:V:WX:YZ:?"))
 	 != EOF) 
   {
     switch (c) {
@@ -4163,6 +4177,12 @@ main(int argc, char **argv)
         vlan_enable = 1;
         vlan_prio = (uchar) i;
       }
+      j++;
+      break;
+    case 'W':			/* W = granular, want to skip setting SOL, params 10-15 */
+      fGranular = 1;
+      //++++ if (fdebug) 
+	printf ("fGranular = %d\n", fGranular);
       j++;
       break;
     case 'i':			/* eth interface (ifname) */
@@ -4397,6 +4417,7 @@ main(int argc, char **argv)
       printf ("      -K  (Kontron) IPMI hostname to set\n");
       printf ("      -Q  VLAN Priority (default =0)\n");
       printf ("      -O  Force LAN security: no null user, cipher 0 off\n");
+      printf ("      -W  Want to set limited LAN parameters, skip 10,11,12,13,SOL\n");
       print_lan_opt_usage (0);
       ret = ERR_USAGE;
       goto do_exit;
@@ -4453,6 +4474,15 @@ main(int argc, char **argv)
 	pefnum = 15;		/* change CritStop pefnum */
       pefmax = 16;
       fsharedMAC = 0;		/* not-shared BMC LAN port */
+    }
+    else if (vend_id == VENDOR_MITAC) {	/* MiTAC = 6653. */
+      fsharedMAC = 0;		/* not-shared BMC LAN port */
+      fSkipGwyMAC = 1;		/* do not try to set gateway MAC */
+      fGranular = 1;		/* skip setting SOL and params 10-15 */
+      pefdesc = NULL;		/* unknown, see PefDesc() */
+      pefnum = 16;	/* change CritStop pefnum to 16 */
+      pefmax = 20;
+      if (!fUserPefNum) fAdjustPefNum = 1;
     }
     else if (vend_id == VENDOR_INTEL) {	/* Intel = 0x000157 */
       pefdesc = &pefdesc1[0];	/*default Intel PEF */
@@ -5310,7 +5340,7 @@ main(int argc, char **argv)
   }
   // if (fmBMC) lan_access = 0x04;  /*Admin*/
   // else lan_access = 0x04; /*Admin*/
-  if (!fIPMI10) {		/* Get SOL params */
+  if ((!fIPMI10) && (!fGranular)) {		/* Get SOL params */
     ret = GetSerialOverLan (lan_ch, 0, 0);
     if (ret != 0) {
       printf ("GetSOL error %d, %s\n", ret, decode_rv(ret));
@@ -5418,6 +5448,7 @@ main(int argc, char **argv)
 	  lasterr = ret;
 	}
 	else ngood++;
+       if (fGranular == 0) {
 	/* clear the gateway IP address */
 	memset (&LanRecord, 0, 4);
 	ret = SetLanEntry (12, &LanRecord, 4);
@@ -5436,6 +5467,7 @@ main(int argc, char **argv)
 	  lasterr = ret;
 	}
 	else ngood++;
+       }
       }
       else if (fdisableSOL) {
 	ret = SetupSerialOverLan (0);	/*disable */
@@ -5528,7 +5560,7 @@ main(int argc, char **argv)
 	  lasterr = ret;
 	}
 	else ngood++;
-	if (MacIsValid (rgmymac)) {
+	if (MacIsValid (rgmymac) && fSkipGwyMAC == 0) {
 	  memcpy (&LanRecord, rgmymac, 6);
 	  ret = SetLanEntry (5, &LanRecord, 6);
 	  if (ret == 0x82) {	/*BMC may not allow the MAC to be set */
@@ -5577,6 +5609,7 @@ main(int argc, char **argv)
 	   rgmymac[0], rgmymac[1], rgmymac[2], rgmymac[3], rgmymac[4],
 	   rgmymac[5]);
 	if (IpIsValid (rgmyip)) {
+         if (fGranular == 0) {
 	  if (lan_ch != gcm_ch) {	/*skip if gcm */
 	    LanRecord.data[0] = 0x00;	/*disable grat arp while setting IP */
 	    ret = SetLanEntry (10, &LanRecord, 1);
@@ -5587,6 +5620,7 @@ main(int argc, char **argv)
 	      lasterr = ret;
 	    }
 	  }
+	 }
 	  LanRecord.data[0] = 0x01;	/* static IP address source */
 	  ret = SetLanEntry (4, &LanRecord, 1);
 	  printf ("SetLanEntry(4), ret = %d\n", ret);
@@ -5603,7 +5637,7 @@ main(int argc, char **argv)
 	    lasterr = ret;
 	  }
 	  else ngood++;
-	  if (MacIsValid (rgmymac)) {
+	  if (MacIsValid (rgmymac) && fSkipGwyMAC == 0) {
 	    memcpy (&LanRecord, rgmymac, 6);
 	    ret = SetLanEntry (5, &LanRecord, 6);
 	    if (ret == 0x82) {
@@ -5647,6 +5681,7 @@ main(int argc, char **argv)
 	    }
 	    else ngood++;
 	  }
+	 if (fGranular == 0) {
 	  /* if lan_ch == 3, gcm gets error setting grat arp (ccode=0xCD) */
 	  if (lan_ch != gcm_ch) {	/*skip if gcm */
 	    /* 01=enable grat arp, 02=enable arp resp, 03=both */
@@ -5666,6 +5701,7 @@ main(int argc, char **argv)
 	    nerrs++;
 	    lasterr = ret;
 	  }
+	 }
 	  if ((vend_id == VENDOR_INTEL) && !fmBMC && !fiBMC) {
 	    LanRecord.data[0] = 0x00;	/*disable DHCP */
 	    ret = SetLanEntry (194, &LanRecord, 1);
@@ -5701,6 +5737,7 @@ main(int argc, char **argv)
 	  }
 	}
 	if (IpIsValid (rggwyip)) {
+         if (fGranular == 0) {
 	  if (!MacIsValid (rggwymac))	/* if gwy MAC not set by user */
 	    ret = Get_Mac (rggwyip, rggwymac, NULL);
 	  printf
@@ -5740,6 +5777,7 @@ main(int argc, char **argv)
 	    lasterr = ret;
 	  }
 	  else ngood++;
+	 }
 	}
 	if (IpIsValid (rggwy2ip)) {
 	  if (!MacIsValid (rggwy2mac))	/* if gwy2 MAC not set by user */
@@ -5789,7 +5827,7 @@ main(int argc, char **argv)
       SELprintf ("SetupSerialOverLan: ret = %d\n", ret);
       if (ret != 0) {
 	nerrs++;
-	lasterr = ret;
+ 	lasterr = ret;
       }
       else ngood++;
       if (!IpIsValid (rgdestip) && IpIsValid (bmcdestip)) {

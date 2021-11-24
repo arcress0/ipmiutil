@@ -1,3 +1,9 @@
+ipmiutil (3.1.8-1) unstable; urgency=low
+
+  * New upstream version.
+
+ -- Andy Cress <arcress@users.sourceforge.net>  Sun, 14 Nov 2021 17:27:58 -0500
+
 ipmiutil (3.1.7-1) unstable; urgency=low
 
   * New upstream version.

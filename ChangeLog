@@ -4384,12 +4384,26 @@ wdt.8          iwdt.8       (ipmiutil wdt)
 08/31/2020 ARCress ipmiutil-3.1.7  changes (iver 3.17)
   setup/*          - added Win msi setup files
   lib/lanplus/lanplus.c   - revert WIN IPv6 changes, add os_assert routine
-  lib/lanplus/lanplus_crypt.c - switch assert to os_assert
+  lib/lanplus/lanplus_crypt.c - switch assert to os_assert/return
   lib/lanplus/lanplus_crypt_implc.c - switch assert to os_assert
   util/ipmidir.h	  - AMD_SMB_1_STATUS_* 1< to 1<<  (SF_SR#41)
   util/isel.c             - fix compile warning
   util/ilan.c             - fix compile warning
-  configure.ac    - add --enable-doc option to allow not building documentation
-  		    contributed by Fabrice Fontaine (ffontaine)
+  configure.ac   - add --enable-doc option to allow not building documentation
+  		     contributed by Fabrice Fontaine (ffontaine)
   util/isensor.c  - add SDR conflict 0xC5 handling retries with delay
-   		    contributed by albertlav
+   		     contributed by albertlav
+
+11/15/2021 ARCress ipmiutil-3.1.8  changes (iver 3.18)
+  libeay32.dll - updated for Windows 64 lanplus
+  ssleay32.dll - updated for Windows 64 lanplus
+  util/oem_supermicro.c - disable DIMM decoding from SMBIOS for SuperMicro (albertlav)
+  util/ilan.c  - new -W option to limit lan settings
+  util/ipmicmd.h - add VENDOR_MITAC
+  util/subs.c    - add VENDOR_MITAC
+  util/ipmilanplus.c - print reason if no lan2
+  util/ipmilan2.c    - print reason if no lan2
+  util/isensor.c  - never skip free_sdr_cache() SR#45
+  configure.ac   - fix --disable-lanplus option to avoid random disables,
+		   recognize openssl-3.0 for SSL flags
+  

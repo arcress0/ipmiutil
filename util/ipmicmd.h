@@ -315,6 +315,7 @@ struct oemvalstr {
 #define VENDOR_LENOVO    0x004A66
 #define VENDOR_LENOVO2   0x004F4D
 #define VENDOR_ASUS      0x000A3F
+#define VENDOR_MITAC     6653      /*=0x19FD*/
 
 #define PRODUCT_QUANTA_S99Q   21401
 #define PRODUCT_QUANTA_QSSC_S4R  64  /*0x0040*/

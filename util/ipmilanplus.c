@@ -1,7 +1,7 @@
 /*
  * ipmilanplus.c
  * 
- * Interface to call libintf_lanplus from ipmitool to do RMCP+ protocol.
+ * Interface to call libintf_lanplus to do RMCP+ protocol.
  *
  * 01/09/07 Andy Cress - created
  * 02/22/07 Andy Cress - initialize cipher_suite to 3 (was 0)
@@ -42,7 +42,10 @@ struct oemvalstr {
         const char * str;
 };
 int ipmi_open_lan2(char *node, char *user, char *pswd, int fdebugcmd)
-{ if (fdebugcmd) verbose = 1; return(LAN_ERR_INVPARAM); }
+{ if (fdebugcmd) verbose = 1; 
+	printf("ipmi_open_lan2: lanplus not configured\n"); 
+	return(LAN_ERR_INVPARAM); 
+}
 
 int ipmi_close_lan2(char *node)
 { return(LAN_ERR_INVPARAM); }
@@ -92,7 +95,7 @@ static void sol_output_handler(void *rsp) { return; }
 static void dbg_dump(char *tag, uchar *pdata, int len, int fascii) { return; }
 #endif
 int ipmi_close_lan2(char *node);  /*prototype*/
-extern LAN_OPT lanp;     /* from ipmicmd.c */
+extern LAN_OPT lanp;     /* LAN_OPT global from ipmicmd.c */
 //extern char *gnode;      /* from ipmicmd.c */
 //extern char *guser;      /* from ipmicmd.c */
 //extern char *gpswd;      /* from ipmicmd.c */
@@ -240,6 +243,7 @@ int ipmi_open_lan2(char *node, char *puser, char *pswd, int fdebugcmd)
    else if (fdebugcmd) fdebugcmd = 1;  /*debug, no packets*/
    if (fdebugcmd) fdebugcmd = 4; /*max debug*/
 #endif
+   if (fdebugcmd) fdebugcmd = 4; /*max debug ++++*/
    switch (fdebugcmd) {
       case 4:   /* max debug */
 	  loglvl = 8; /* 8=(LOG_DEBUG=1, max), 7=LOG_DEBUG */
@@ -315,9 +319,13 @@ int ipmi_open_lan2(char *node, char *puser, char *pswd, int fdebugcmd)
               strncpy(intf->session->authcode, pswd, n);
             }
             rv = intf->open(intf);
-            if (fdebugcmd)
+#ifdef WIN32
+		/* this debug can cause  problems */
+              if (fdebugcmd)
                 printf("lan2 open.intf(auth=%d,priv=%d,cipher=%d) returned %d\n",
-			 lanp.auth_type,lanp.priv,lanp.cipher, rv);
+			 0,0,0,rv);
+			 // lanp.auth_type,lanp.priv,lanp.cipher, rv);
+#endif
             if (rv != -1) { /*success is >= 0*/
 		sol_seq = 0;  /*init new session, will call inc_sol_seq*/
 		sol_len = 0;
@@ -447,13 +455,15 @@ int ipmi_cmd_lan2(char *node, ushort cmd, uchar *pdata, int sdata,
 
 
 
-#define NOEM 4
-static struct { int id; char *name; } oem_list[NOEM] = {
-   {0x000157, "intelplus"},   /*VENDOR_INTEL*/
-   {0x002A7C, "supermicro"},  /*VENDOR_SUPERMICRO*/
-   /* {       0, "icts"},  *ICTS testware, needs user option*/
-   {0x00000B, "hp"},    /*VENDOR_HP*/
-   {0x000002, "ibm"}    /*VENDOR_IBM*/
+#define NOEM 5
+static struct { int id; int prod; char *name; } oem_list[NOEM] = {
+   {0x000157, 0, "intelplus"},   /*VENDOR_INTEL*/
+   {0x002A7C, 0, "supermicro"},  /*VENDOR_SUPERMICRO*/
+   /* {       0, 0, "icts"},  *ICTS testware, needs user option*/
+   {0x000157, 0x002D, "i82571spt"},  /* Intel 82571 MAC with integrated RMCP+ support in super pass-through mode */
+				     /* Is this ClearBay?  Need to verify product id */
+   {0x00000B, 0, "hp"},    /*VENDOR_HP*/
+   {0x000002, 0, "ibm"}    /*VENDOR_IBM*/
 };
 #ifdef METACOMMAND
 extern int is_lan2intel(int vend, int prod);  /*oem_intel.c*/
@@ -470,11 +480,12 @@ static int is_lan2intel(int vend, int prod) {
 int ipmi_oem_active(struct ipmi_intf * intf, const char * oemtype)
 {
         int i, vend, prod, dtype;
+	if (intf == NULL || oemtype == NULL) return 0;
 	get_mfgid(&vend,&prod);
 	dtype = get_driver_type();
         if (verbose) 
 	    lprintf(LOG_INFO,"oem_active(is_type==%s ?) vend=%x prod=%x", oemtype,vend,prod);
-        if (strncmp("intelplus", oemtype, strlen(oemtype)) == 0) {
+        if (strncmp("intelplus", oemtype, 9) == 0) {   /*was strlen(oemtype)*/
             /* special case to detect intelplus, not all Intel platforms */
             if (dtype == DRV_LAN2I) {
 		i = 1;
@@ -492,9 +503,14 @@ int ipmi_oem_active(struct ipmi_intf * intf, const char * oemtype)
         } else {
            // if (intf->oem == NULL) return 0;
            for (i = 0; i < NOEM; i++) {
-             if (strncmp(oem_list[i].name,oemtype,strlen(oemtype)) == 0)
+             if (strncmp(oem_list[i].name,oemtype,strlen(oem_list[i].name)) == 0)
                 if (oem_list[i].id == vend) {
-                   if (verbose) lprintf(LOG_WARN,"%s detected, vend=%x",oemtype,vend);
+        	   if (strncmp("i82571spt", oemtype, strlen(oem_list[i].name)) == 0) {
+		     /* special case, check product id also */
+                     if (oem_list[i].prod == prod) i = 1;
+		     else i = 0;
+		   }
+                   if (verbose) lprintf(LOG_WARN,"oem_active: vend=%x detected, %s",vend,oemtype);
                    return 1;
                 }
            }

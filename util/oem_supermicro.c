@@ -574,6 +574,15 @@ int decode_mem_supermicro(int prod, uchar b2, uchar b3, char *desc, int *psz)
       else 
          n = sprintf(desc,"P%d_DIMM%c%d",cpu,rgpair[pair],dimm);
    }
+   /* Use DMI if we get confirmation about cpu/dimm indices. */
+#ifdef NOT
+   /* dangerous for some SuperMicro firmware/BIOS combos */
+   if (! is_remote()) {
+      fsm_debug = fdebug;
+      rv = get_MemDesc(cpu,dimm,desc,psz);
+      /* if (rv != 0) desc has "DIMM[%d}" */ 
+   } 
+#endif
    if ((bdata == 0xFF) || (rv != 0)) n = sprintf(desc,DIMM_UNKNOWN);  
    if (fdebug) 
 	 printf("decode_mem_supermicro: v%d bdata=%02x(%d) cpu=%d dimm=%d pair=%d\n",ver,bdata,bdata,cpu,dimm,pair);

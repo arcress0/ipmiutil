@@ -403,7 +403,7 @@ int get_errno(void)
  /* For a list of all IANA enterprise mfg vendor numbers, 
   * see http://www.iana.org/assignments/enterprise-numbers 
   * Product numbers are different for each mfg vendor.  */
-#define N_MFG  47
+#define N_MFG  48
 static struct { int val; char *pstr; } mfgs[N_MFG] = {
     {0,   " "},
     {0x0000BA, "Toshiba"},
@@ -429,6 +429,7 @@ static struct { int val; char *pstr; } mfgs[N_MFG] = {
     {   20569, "Inventec ESC"},
     {   24673, "ServerEngines"},
     {   27768, "NAT"},
+    {VENDOR_MITAC, "MiTAC"},  /*=6653.*/
     {VENDOR_CISCO, "Cisco"},  /*=5771.*/
     {VENDOR_IBM, "IBM"},  /*0x000002*/
     {VENDOR_NEWISYS, "Newisys"}, /*=9237. */

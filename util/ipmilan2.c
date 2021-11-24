@@ -30,7 +30,10 @@ void set_loglevel(int level);
 void lprintf(int level, const char * format, ...);
 
 int ipmi_open_lan2(char *node, char *user, char *pswd, int fdebugcmd)
-{ if (fdebugcmd) verbose = 1; return(LAN_ERR_INVPARAM); }
+{ if (fdebugcmd)  verbose = 1; 
+	printf("ipmi_open_lan2: lanplus not configured\n"); 
+	return(LAN_ERR_INVPARAM); 
+}
 
 int ipmi_close_lan2(char *node)
 { return(LAN_ERR_INVPARAM); }

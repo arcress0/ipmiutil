@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT(ipmiutil,3.1.7)
+AC_INIT(ipmiutil,3.1.8)
 AC_CONFIG_SRCDIR(util/ipmiutil.c)
 echo "ipmiutil version ${PACKAGE_VERSION}"
 AC_CONFIG_HEADERS(config.h)
@@ -94,8 +94,8 @@ AC_ARG_ENABLE([landesk],
 
 dnl Configure ipmiutil for lanplus (libipmi_lanplus.a) or not (default yes)
 AC_ARG_ENABLE([lanplus],
-    [  --enable-lanplus      enable lanplus support (default=yes)],[default=yes],
-[if test "x$enableval" = "xno"; then
+    [  --disable-lanplus      disable lanplus support [[default=enabled]]],)
+if test "x$enable_lanplus" = "xno"; then
 	drv_lanplus=""
 	LANPLUS_CFLAGS=""
 	LANPLUS_LDADD=""
@@ -103,6 +103,7 @@ AC_ARG_ENABLE([lanplus],
 	LANPLUS_CRYPTO=""
 	LANPLUS_SAM="no"
 	LD_SAMX=""
+      echo "lanplus disabled"
 else
 	drv_lanplus="lanplus"
 	LANPLUS_CFLAGS="-DHAVE_LANPLUS"
@@ -113,7 +114,8 @@ else
 	LANPLUS_CRYPTO="-lcrypto"
 	LANPLUS_SAM="yes"
 	LD_SAMX="../lib/libipmi_lanplus.a -lcrypto"
-fi ])
+      echo "lanplus enabled"
+fi 
 
 dnl Configure libipmiutil.a for lanplus or not
 dnl Only SOL requires lanplus, so usually build libipmiutil.a without lanplus
@@ -427,16 +429,25 @@ else
     # The openssl rpm might not be installed
 	sslver=""
     which rpm >/dev/null 2>&1
+	sslnew=0
 	if test $? -eq 0 ; then
 		sslver=`rpm -q openssl-devel |cut -f3 -d'-' |cut -f1-2 -d'.'`
 	fi
 	if test "$sslver" = ""; then
 		sslver=`openssl version |awk '{ print $2 }'|cut -f1-2 -d'.'`
 	fi
+	sslrel=`echo $sslver |cut -f1 -d. `
 	if test "$sslver" = "1.1"; then
 		echo "Detected openssl-$sslver" 
 		MD2_CFLAGS="-DSKIP_MD2 -DSSL11"
-	else 
+		sslnew=1
+	fi
+	if test "$sslrel" = "3"; then
+		echo "Detected openssl-$sslver" 
+		MD2_CFLAGS="-DSKIP_MD2 -DSSL11"
+		sslnew=1
+	fi
+	if test $sslnew -eq 0 ; then
 	 echo "Detected openssl-$sslver" 
 	 if test -f "$LIB_DIR/libcrypto.so"; then
 		strings $LIB_DIR/libcrypto.so | grep EVP_md2 >/dev/null 2>&1

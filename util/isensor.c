@@ -3660,7 +3660,7 @@ int i_sensor(int argc, char **argv)
              if (ret != 0) {
                if (ret == 0xC5) {  /* lost Reservation ID, retry */
                  /*fprintf(stderr,"%04x lost reservation retrying to get, try: %d,  %d, rlen = %d\n", recid,try,ret,sz);*/
-		 os_usleep((rand() & 3000), 0); //_sleep(rand() & 3000);
+                 os_usleep((rand() & 3000),0);
                  fDoReserve = 1;
                }
                else {
@@ -3897,7 +3897,8 @@ NextSdr:
    }
 
 do_exit:
-   if (fjumpstart) free_sdr_cache(psdrcache); /* does nothing if ==NULL*/
+   // if (fjumpstart) 
+   free_sdr_cache(psdrcache); /* does nothing if ==NULL*/
    /* show_outcome(progname,ret); *handled in ipmiutil.c*/
    ipmi_close_();
    return(ret);  
