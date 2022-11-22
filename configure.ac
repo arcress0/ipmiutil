@@ -333,7 +333,7 @@ else
 	echo $ECHO_N "checking compile sign warning flags ... $ECHO_C"
 	cfwarn="-Wno-pointer-sign -Wno-sign-conversion"
     # want "-Wno-unused-result", but unrecognized
-	echo "int main() { return(1); }" >$tmpc
+	echo "int main(void) { return(1); }" >$tmpc
 	$CC -o $tmpo -c $cfwarn $tmpc  >/dev/null 2>&1
 	if test $? -ne 0 ; then
 	   cfwarn=
@@ -344,7 +344,7 @@ else
         rm -f $tmpc $tmpo >/dev/null 2>&1
 	echo $ECHO_N "checking compile gnu warning flags ... $ECHO_C"
         cfgnu="-Wgnu-designator"
-	echo "int main() { return(1); }" >$tmpc
+	echo "int main(void) { return(1); }" >$tmpc
 	$CC -o $tmpo -c $cfgnu $tmpc  >/dev/null 2>&1
 	if test $? -ne 0 ; then
 	   cfgnu=
@@ -355,7 +355,7 @@ else
 	rm -f $tmpc $tmpo >/dev/null 2>&1
 	echo $ECHO_N "checking strict aliasing warning flags ... $ECHO_C"
 	cfalias="-fno-strict-aliasing"
-	echo "int main() { return(1); }" >$tmpc
+	echo "int main(void) { return(1); }" >$tmpc
 	$CC -o $tmpo -c $cfalias $tmpc  >/dev/null 2>&1
 	if test $? -ne 0 ; then
 	   cfalias=
@@ -366,7 +366,8 @@ else
 	rm -f $tmpc $tmpo >/dev/null 2>&1
 	echo $ECHO_N "checking compile fortify flags ... $ECHO_C"
 	cfhard="-fstack-protector --param=ssp-buffer-size=4 -D_FORTIFY_SOURCE=2"
-	echo "int main() { alloca(100); return(1); }" >$tmpc
+	echo "#include <alloca.h>
+	int main(void) { alloca(100); return(1); }" >$tmpc
 	$CC -o $tmpo $cfhard $tmpc  >/dev/null 2>&1
 	if test $? -ne 0 ; then
 	   cfhard=

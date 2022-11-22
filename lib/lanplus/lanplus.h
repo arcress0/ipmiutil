@@ -132,4 +132,6 @@ int  ipmi_lanplus_open(struct ipmi_intf * intf);
 void ipmi_lanplus_close(struct ipmi_intf * intf);
 int ipmiv2_lan_ping(struct ipmi_intf * intf);
 
+void os_assert(char *msg);
+
 #endif /*IPMI_LAN_H*/
