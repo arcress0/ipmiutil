@@ -81,6 +81,7 @@
  * 01/25/08 ARCress  v2.7    allow float input with -u thresholds, 
  *                           add -p persist logic for -u thresholds.
  * 09/20/19 ARCress  v3.15   workaround for Pigeon Point bad sa in SDR
+ * 07/08/22 ARCress  v3.19   fix -i get_idx_range to show last idx in range
  */
 /*M*
 Copyright (c) 2002-2006 Intel Corporation. 
@@ -609,16 +610,17 @@ int get_idx_range(char *str)
 {
     // int i = 0;
     char *p;
+	char *p2;
     p = strchr(str,'-');
     if (p == NULL) p = strchr(str,',');
-    if (p != NULL) {
+    if (p != NULL) {  /*range*/
        *p = 0;
        p++;
        sensor_idx1 = parse_idx(str);
-       sensor_idxN = parse_idx(p);
-    } else {
+       sensor_idxN = parse_idx(p) + 1; /*end if >=, so + 1*/
+    } else {  /*single sensor*/
        sensor_idx1 = parse_idx(str);
-       sensor_idxN = sensor_idx1;
+       sensor_idxN = sensor_idx1; /*end if >=*/
     }
     return(0);
 }

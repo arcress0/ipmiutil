@@ -1183,7 +1183,7 @@ main(int argc, char **argv)
 	  ipath = getenv("ipmiutildir");  /*ipmiutil directory path*/
 	  if (ipath != NULL) {
 	     if (strlen(ipath)+12 < sizeof(idxfile)) {
-	        sprintf(idxfile,"%s\\%s",ipath,"\\",IDXFILE);
+	        sprintf(idxfile,"%s\\%s",ipath,IDXFILE);
 	     }
 	  }
        }

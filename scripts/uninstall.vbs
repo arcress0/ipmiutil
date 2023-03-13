@@ -39,7 +39,7 @@ EnvPath = sh.RegRead(key3)
 ' wscript.echo "EnvPath= " & EnvPath
 
 ' Calculates strStartAt which cuts the strSearchFor value from the path
-' strSearchFor = ";C:\program files\intel\ipmirastools"
+' strSearchFor = ";C:\program files\sourceforge\ipmiutil"
 strSearchFor = ";" & InstallLoc 
 newPath = EnvPath 
 iStartAt = "0"
@@ -54,7 +54,7 @@ If (strStartAt > "0") then
   strTotalLen=len(newPath)
   newPathLeft=left(newPath,iStartAt)
   newPathRight=right(newPath, (strTotalLen-strSearchForLen-iStartAt))
-  newPath=newPathLeft + newPathRight 
+  newPath=newPathLeft + ";" + newPathRight 
 end if
 
 ' wscript.echo "newPath= " & newPath

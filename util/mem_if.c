@@ -8,6 +8,7 @@
  * 02/26/08 ARCress - decode type 15 log structure
  * 07/21/08 ARCress - fixed for 64-bit memory model
  * 08/12/08 ARCress - trim out extra stuff, consolidated
+ * 01/09/23 ARCress - try UEFI_MEM_RANGE_BASE  0x6d5a7000 if error
  *----------------------------------------------------------------------*/
 /*----------------------------------------------------------------------*
 The BSD License 
@@ -74,6 +75,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 #define	DOS_MEM_RANGE_BASE   0xF0000  //starting memory range for smbios tables
+#define	UEFI_MEM_RANGE_BASE  0x6d5a7000  //starting memory range for UEFI tables
 #define	DOS_NUM_BYTES_TO_MAP 0x0FFFE  //number bytes to map for smbios tables
 
 //smbios defines
@@ -416,8 +418,13 @@ int  getSmBiosTables(UCHAR **ptableAddress)
 	    * unless in debug mode. */
 	   if (fsm_debug) 
 #endif
-		fprintf(stderr, "Cannot map memory.\n");
-	        return ulSmBiosLen; /*==0*/
+		fprintf(stderr, "Cannot map SMBIOS memory.\n");
+	   	/* Try UEFI address */
+		tdStartAddress = UEFI_MEM_RANGE_BASE;
+		if (!MapPhysicalMemory(tdStartAddress,ulSize,&tdVirtualAddress)) {
+		   fprintf(stderr, "Cannot map UEFI SMBIOS memory.\n");
+	           return ulSmBiosLen; /*==0*/
+		}
 	}
 
 	//now find the entry point for smbios

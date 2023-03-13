@@ -631,11 +631,13 @@ main(int argc, char **argv)
       } else if (vendid == VENDOR_INTEL) {   /* Intel */
 	  if (prodid != 0x0100)  /* ia64 Itanium2 is different */
 	      platform = platIntel;  /* else handle as Intel Sahalee */
+#ifdef OBSOLETE	
 	  if (is_romley(vendid,prodid) || (prodid == 0x003E)) {  
 		/* Romley or Thurley/S5520UR */
 	      platform = platS5500;  /* not like Intel Sahalee */
 	      set_max_kcs_loops(URNLOOPS); /*longer KCS timeout*/
 	  }
+#endif
       } else if (vendid == VENDOR_KONTRON) {   /* Kontron */
           fignore_opterr = 1;  /* ignore boot options errors */
 	  /* supports Chassis Soft Power command 0x05, so not platIntel */

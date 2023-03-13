@@ -22,14 +22,14 @@
 #
 
 name=ipmiutil_wdt
-prog="/usr/bin/ipmiutil wdt"
+progn="/usr/bin/ipmiutil wdt"
 wdtcron=/etc/cron.d/wdt
 LOCKFILE=/var/lock/subsys/$name
 wdtlog=/var/log/$name
 wdtsec=150  # default 150 seconds for watchdog timeout (2*60 + 30)
 
 start() {
-	echo -n "Starting $prog: "
+	echo -n "Starting $progn: "
 	echo
         # do not start if in driverless mode
         ipmiutil cmd -k |grep "driverless" >/dev/null 2>&1
@@ -44,12 +44,12 @@ start() {
 	   RETVAL=1
 	else
 	   # configure the watchdog for a 150 second timeout
-	   $prog -e -t $wdtsec  >$wdtlog
+	   $progn -e -t $wdtsec  >$wdtlog
 	   RETVAL=$?
 	   if [ $RETVAL -eq 0 ]; then
 	     # restart the watchdog every 60 seconds via /etc/cron.d
 	     cat - <<%%% >$wdtcron
-* * * * *  root  $prog -r >/dev/null
+* * * * *  root  $progn -r >/dev/null
 %%%
 	     # make crond re-read the /etc/cron.d
 	     $restart_cron >>$wdtlog
@@ -61,10 +61,10 @@ start() {
 }
 
 stop() {
-	echo -n "Stopping $prog: "
+	echo -n "Stopping $progn: "
 	echo
 	# first disable the watchdog 
-	$prog -d  >>$wdtlog
+	$progn -d  >>$wdtlog
 	RETVAL=$?
 	# now remove the wdt cron job
 	rm -f $wdtcron
@@ -81,7 +81,7 @@ restart() {
 }	
 
 get_status() { 
-    $prog
+    $progn
     if [ -f ${LOCKFILE} ]; then
         if [ -f $wdtcron ]; then
            echo "$name is running..."
