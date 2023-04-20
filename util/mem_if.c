@@ -614,7 +614,7 @@ int get_IpmiStruct(UCHAR *iftype, UCHAR *ver, UCHAR *sa, int *base, UCHAR *inc)
 //  Returns:    0 for success, or -1 if not found.
 //              if success, the desc string will have valid data
 //////////////////////////////////////////////////////////////////////////////
-int get_MemDesc(UCHAR array, UCHAR dimm, char *desc, int *psize)
+int get_MemDesc(int array, int dimm, char *desc, int *psize)
 {
 	UCHAR *VirtualAddress;
 	ULONG SMBiosLen = 0;

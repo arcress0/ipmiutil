@@ -53,7 +53,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /* May stub out direct io. For instance, PPC does not support <sys/io.h> */
 #define UCHAR  unsigned char
 #define UINT16 unsigned short
-int ipmi_open_direct(int fdebugcmd)
+int ipmi_open_direct(char fdebugcmd)
 { return(-1); }
 int ipmi_close_direct(void)
 { return(-1); }
@@ -389,7 +389,7 @@ static int check_lock_dir(void)
    return(rv);
 }
 
-int ipmi_open_direct(int fdebugcmd)
+int ipmi_open_direct(char fdebugcmd)
 {
 	int status = 0;
         //char *dmsg = "";

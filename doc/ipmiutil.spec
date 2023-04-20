@@ -3,7 +3,7 @@
 # Copyright (c) 2012 Andy Cress
 #
 Name:      ipmiutil
-Version: 3.1.8
+Version: 3.1.9
 Release: 1%{?dist}
 Summary:   Easy-to-use IPMI server management utilities
 License:   BSD
@@ -137,6 +137,7 @@ rm -rf %{buildroot}
 %{systemd_fls}/ipmiutil_wdt.service
 %{systemd_fls}/ipmi_port.service
 %{_datadir}/%{name}/ipmiutil.env.template
+%{_datadir}/%{name}/ipmiutil.env
 %{_datadir}/%{name}/ipmiutil.pre
 %{_datadir}/%{name}/ipmiutil.setup
 %{_datadir}/%{name}/ipmi_if.sh

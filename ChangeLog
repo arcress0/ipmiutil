@@ -4407,3 +4407,18 @@ wdt.8          iwdt.8       (ipmiutil wdt)
   configure.ac   - fix --disable-lanplus option to avoid random disables,
 		   recognize openssl-3.0 for SSL flags
   
+03/03/2023 ARCress ipmiutil-3.1.9  changes (iver 3.19)
+  util/isensor.c - fix -i get_idx_range to show last idx in range
+  util/igetevent.c - fix printf extra arg
+  util/memif.c - SR56: try UEFI address 6d5a7000 if F0000 error
+  configure.ac - Clang 16 fixes, resolve -Wimplicit-function-declaration issues
+			 (Sam James sam@gentoo.org 11/16/2022)
+  lib/lanplus/lanplus.h - resolve implicit os_assert declaration (Sam James)
+  util/ireset.c  - SR58: remove is_romley case for ireset -D
+  scripts/ipmiutil_wdt - SR43: changed $prog to $progn for Debian
+  scripts/uninstall.vbs - SR53: add ; to fix path
+  SR53 (Windows): install libeay32.dll, ssleay32.dll into ipmiutil path also
+  util/ipmidir.c - ipmi_open_direct(char)
+  util/mem_if.c  - UCHAR/int
+  doc/ipmiutil.spec - enumerate ipmiutil.env, ipmiutil.env.template
+  configure.ac  - add -Wlto-type-mismatch to cfwarn
