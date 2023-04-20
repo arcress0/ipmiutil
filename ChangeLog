@@ -4422,3 +4422,6 @@ wdt.8          iwdt.8       (ipmiutil wdt)
   util/mem_if.c  - UCHAR/int
   doc/ipmiutil.spec - enumerate ipmiutil.env, ipmiutil.env.template
   configure.ac  - add -Wlto-type-mismatch to cfwarn
+
+04/20/2023 ARCress ipmiutil-3.2.0  changes (iver 3.20)
+  lib/lanplus/lanplus.c - GH13: hpm netfn2c/cmd34 error, bridge netfn06,07/cmd34

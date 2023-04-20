@@ -881,7 +881,10 @@ ipmi_lan_poll_recv(struct ipmi_intf * intf)
 			   lprintf(LOG_DEBUG+2, "IPMI Request Match found");
 			   if ( intf->target_addr != intf->my_addr &&
                                      bridgePossible && rsp->data_len &&
-                                     rsp->payload.ipmi_response.cmd == 0x34 )
+                                    rsp->payload.ipmi_response.cmd == 0x34 &&
+				    (rsp->payload.ipmi_response.netfn == 0x06 ||
+				    rsp->payload.ipmi_response.netfn == 0x07) &&
+				    rsp->payload.ipmi_response.rs_lun == 0 )
                            {
 				  /* Check completion code */
 				  if (rsp->data[offset-1] == 0)
