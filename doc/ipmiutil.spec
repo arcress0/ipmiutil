@@ -4,7 +4,7 @@
 #
 Name:      ipmiutil
 Version: 3.1.9
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary:   Easy-to-use IPMI server management utilities
 License:   BSD
 Source:    http://downloads.sourceforge.net/%{name}/%{name}-%{version}.tar.gz
@@ -137,7 +137,6 @@ rm -rf %{buildroot}
 %{systemd_fls}/ipmiutil_wdt.service
 %{systemd_fls}/ipmi_port.service
 %{_datadir}/%{name}/ipmiutil.env.template
-%{_datadir}/%{name}/ipmiutil.env
 %{_datadir}/%{name}/ipmiutil.pre
 %{_datadir}/%{name}/ipmiutil.setup
 %{_datadir}/%{name}/ipmi_if.sh
@@ -211,6 +210,10 @@ rm -rf %{buildroot}
 vardir=%{_var}/lib/%{name}
 scr_dir=%{_datadir}/%{name}
 
+if [ ! -f %{_datadir}/%{name}/ipmiutil.env ]; then
+   cp %{_datadir}/%{name}/ipmiutil.env.template %{_datadir}/%{name}/ipmiutil.env
+fi
+
 # Install right scripts/service files no matter install or upgrade
 %if 0%{?req_systemd}
 %service_add_post ipmi_port.service ipmiutil_evt.service ipmiutil_asy.service ipmiutil_wdt.service
@@ -218,9 +221,6 @@ scr_dir=%{_datadir}/%{name}
    if [ -x /bin/systemctl ] && [ -d %{unit_dir} ]; then
       # Replace if exists, append if not.
       # Use # as the sed delimiter to prevent handling slash in the path.
-      if [ ! -f %{_datadir}/%{name}/ipmiutil.env ]; then
-         cp %{_datadir}/%{name}/ipmiutil.env.template %{_datadir}/%{name}/ipmiutil.env
-      fi
       grep -q 'IINITDIR' %{_datadir}/%{name}/ipmiutil.env \
          && sed -i 's#^IINITDIR=.*#IINITDIR=%{init_dir}#' %{_datadir}/%{name}/ipmiutil.env \
          || echo "IINITDIR=%{init_dir}" >> %{_datadir}/%{name}/ipmiutil.env
@@ -275,8 +275,9 @@ then
       # Capture a snapshot of IPMI sensor data once now for later reuse.
       sensorout=$vardir/sensor_out.txt
       if [ ! -f $sensorout ]; then
-         %{_bindir}/ipmiutil sensor -q >$sensorout || :
-         if [ $? -ne 0 ]; then
+         IPMIret=1
+         %{_bindir}/ipmiutil sensor -q >$sensorout && IPMIret=0
+         if [ $IPMIret -ne 0 ]; then
            # remove file if error, try again in ipmi_port on reboot.
            rm -f $sensorout
          fi

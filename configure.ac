@@ -331,7 +331,7 @@ else
 	tmpc=/tmp/tmp.c
 	tmpo=/tmp/tmp.o
 	echo $ECHO_N "checking compile sign warning flags ... $ECHO_C"
-	cfwarn="-Wno-pointer-sign -Wno-sign-conversion -Wlto-type-mismatch -Wmaybe-uninitialized -Wformat-overflow=1 -Wformat-truncation=1 "
+	cfwarn="-Wno-pointer-sign -Wno-sign-conversion"
     # want "-Wno-unused-result", but unrecognized
 	echo "int main(void) { return(1); }" >$tmpc
 	$CC -o $tmpo -c $cfwarn $tmpc  >/dev/null 2>&1

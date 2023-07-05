@@ -1332,13 +1332,14 @@ int GetSDR(int r_id, int *r_next, uchar *recdata, int srecdata, int *rlen)
            if (sresp < (thislen+2)) {
               /* There are some SDRs that may report the wrong length, and
                * return less bytes than they reported, so just truncate. */
+              fprintf(stderr,"SDR record %x is malformed, length %d is less than minimum %d\n",r_id,sresp,thislen+2);
               if (fdebug) printf("sdr[%x] off=%d, expected %d, got %d\n",
                                 r_id,off,thislen+2,sresp);
               if (sresp >= 2) thislen = sresp - 2;
               else thislen = 0;
               reclen = off + thislen;  /* truncate, stop reading */
-              fprintf(stderr,"SDR record %x is malformed, length %d is less than minimum %d\n",r_id,sresp,thislen+2);
-			  rc = ERR_SDR_MALFORMED;
+	      /* auto-corrected, so not a fatal error */
+	      // rc = ERR_SDR_MALFORMED;
            }
 	   /* successful */
 	   memcpy(&resp[off],&respchunk[2],thislen);

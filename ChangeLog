@@ -4423,5 +4423,8 @@ wdt.8          iwdt.8       (ipmiutil wdt)
   doc/ipmiutil.spec - enumerate ipmiutil.env, ipmiutil.env.template
   configure.ac  - add -Wlto-type-mismatch to cfwarn
 
-04/20/2023 ARCress ipmiutil-3.2.0  changes (iver 3.20)
+07/05/2023 ARCress ipmiutil-3.1.9-2  changes 
+  setver  - ver 3.1.9-2
   lib/lanplus/lanplus.c - GH13: hpm netfn2c/cmd34 error, bridge netfn06,07/cmd34
+  doc/ipmiutil.spec - GH17: do not abort if sensor command fails
+  util/isensor.c - GH17: if MALFORMED, not fatal, show message before correct

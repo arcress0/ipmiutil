@@ -6,8 +6,8 @@
 #    [doinc?] is 'n'.
 #    if [doinc?] is 'r', reverse increment (decrement).
 #
-ver=3.1.8
-rel=1
+ver=3.1.9
+rel=2
 tmped=/tmp/edver.tmp
 tmpspec=/tmp/edspec.tmp
 cmdf=/tmp/cmd.tmp
