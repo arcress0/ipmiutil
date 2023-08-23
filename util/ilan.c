@@ -1001,7 +1001,7 @@ GetUserInfo (uchar unum, uchar chan, uchar * enab, uchar * priv, char *uname,
       max_users = responseData[0] & 0x3f;
       enabled_users = responseData[1] & 0x3f;
     }
-    upriv = responseData[3];
+    upriv = responseData[3] & 0x0F;
     if ((responseData[1] & 0x80) != 0) *enab = 0;
     else *enab = 1;
     inputData[0] = unum;	/* usually = 1 for BMC LAN */
