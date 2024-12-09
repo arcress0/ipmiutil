@@ -37,7 +37,11 @@
 
 #ifdef WIN32
 #include <windows.h>
+#ifdef HAVE_IPV6
+#include <winsock2.h>
+#else
 #include <winsock.h>
+#endif
 typedef unsigned char           uint8_t;
 typedef unsigned short int      uint16_t;
 typedef unsigned int            uint32_t;

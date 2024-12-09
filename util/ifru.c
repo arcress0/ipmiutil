@@ -2032,6 +2032,13 @@ int i_fru(int argc, char **argv)
    }
 
    if (fdump && ret == 0) {
+      ret = load_fru(sa,g_fruid,g_frutype,&pfru);
+      if (ret != 0) {
+	 show_loadfru_error(sa,g_fruid,ret);
+	 free_fru(pfru);
+	 pfru = NULL;
+ 	 goto do_exit;
+      }
       /* Dump FRU to a binary file */
 #ifdef WIN32
       fp = fopen(binfile,"wb");

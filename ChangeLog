@@ -4428,3 +4428,19 @@ wdt.8          iwdt.8       (ipmiutil wdt)
   lib/lanplus/lanplus.c - GH13: hpm netfn2c/cmd34 error, bridge netfn06,07/cmd34
   doc/ipmiutil.spec - GH17: do not abort if sensor command fails
   util/isensor.c - GH17: if MALFORMED, not fatal, show message before correct
+
+08/03/2023 ARCress ipmiutil-3.1.9-3
+  util/ifru.c - GH15: fails to dump FRU with -d (added load_fru for fdump)
+  util/ilan.c - GH14: user set password fails w 0xCC, upriv = rd3 & 0x0F
+
+02/23/2024 ARCress ipmiutil-3.1.9-4
+  util/itsol.c - add winsock2.h case, comment out pollfd defn
+
+05/01/2024 ARCress
+  util/ipmilanplus.h - added winsock2.h 
+  util/isol.c - added winsock2.h 
+  util/isolwin.c ilan.c ihpm.c idiscover.c iconfig.c oem_kontron.c - added winsock2.h
+
+11/30/2024 ARCress ipmiutil-3.2.0-1
+  util/oem_dell.c  - fix macos compile error with vFlashstr typedef (Rui Chen #61)
+  util/idiscover.c - detect if IP address (from tweimann/fix-issue-14)

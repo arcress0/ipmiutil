@@ -37,8 +37,13 @@
 #include <stdio.h>
 #include <string.h>
 #ifdef WIN32
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#ifdef HAVE_IPV6
+#include <winsock2.h>
+#else
 #include <winsock.h>
+#endif
 #include <io.h>
 #include <time.h>
 #include "getopt.h"
@@ -118,9 +123,9 @@ static SOCKADDR_T haddr;
 static int haddrlen = 0;
 static int hauth, hpriv, hcipher;
 #ifdef WIN32
-#define NI_MAXHOST 80
-#define NI_MAXSERV 80
-struct pollfd { int fd; short events; short revents; };
+// #define NI_MAXHOST 80
+// #define NI_MAXSERV 80
+// struct pollfd { int fd; short events; short revents; };
 struct winsize { int x; int y; };
 #else
 static struct termios _saved_tio;

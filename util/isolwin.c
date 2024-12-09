@@ -37,9 +37,14 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS 
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *M*/
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <stdio.h>
+#ifdef HAVE_IPV6
+#include <winsock2.h>
+#else
 #include <winsock.h>
+#endif
 #include <io.h>
 #include <conio.h>
 #include <string.h>

@@ -18,6 +18,7 @@
  * 07/15/08 Andy Cress - added -r for ping repeats
  * 11/21/08 Andy Cress - detect eth intf and broadcast ip addr
  * 01/04/16 Andy Cress - v1.11, allow 0 if fBroadcastOk (-a) 
+ * 11/30/24 Andy Cress - v1.12, detect if IP address
  */
 /*M*
 Copyright (c) 2006, Intel Corporation
@@ -158,7 +159,7 @@ int GetFirstIP(uchar *ipaddr, uchar *macadr, char *ipname, char fdb); /*ilan.c*/
 /*
  * Global variables 
  */
-static char * progver   = "1.11";
+static char * progver   = "1.12";
 static char * progname  = "idiscover";
 static char   fdebug    = 0;
 static char   fping     = 1;
@@ -283,17 +284,19 @@ static void cleanup(void)
 
 void show_usage(void)
 {
-   printf("Usage: %s [-abegix] \n",progname);
-   printf("       -a      all nodes, enables broadcast ping\n");
-   printf("       -b <ip> beginning IP address (x.x.x.x), required\n");
-   printf("       -e <ip> ending IP address (x.x.x.x), default is begin IP\n");
-   printf("       -g      use GetChanAuthCap instead of RMCP ping\n");
-   printf("       -i      interface name, default is eth0\n");
-   printf("       -m      get MAC addresses with a raw broadcast ping\n");
-   printf("       -p N    specific Port (IPMI LAN port=623)\n");
-   printf("       -r N    number of Repeat pings to each node (default=1)\n");
-   // printf("       -s      specific subnet\n");
-   printf("       -x      show eXtra debug messages\n");
+   printf("Usage: %s [-abeghimprx] \n",progname);
+   printf("  -a            all nodes, enables broadcast ping\n");
+   printf("  -b <ip>       beginning IP address (x.x.x.x), required\n");
+   printf("  -e <ip>       ending IP address (x.x.x.x), default is begin IP\n");
+   printf("  -g            use GetChanAuthCap instead of RMCP ping\n");
+   printf("  -h            print this help text\n");
+   printf("  -i <name|ip>  interface to use: name, IP address or 0.0.0.0\n");
+   printf("                defaults to first network interface (e.g.  eth0)\n");
+   printf("  -m            get MAC addresses with a raw broadcast ping\n");
+   printf("  -p <N>        specific port (IPMI LAN port=623)\n");
+   printf("  -r <N>        number of repeat pings to each node (default=1)\n");
+// printf("  -s            specific subnet\n");
+   printf("  -x            show extra debug messages\n");
 }
 
 static int os_sleep(unsigned int s, unsigned int u)
@@ -527,6 +530,22 @@ int sock_init( char *_interface, char *_startIP, char *_endIP)
       if (n < 0) rv = LAN_ERR_OTHER; /*-13*/
    } else { /* valid _interface string */
       if (strchr(_interface, '.') != NULL)
+      {   /* assume it is an IP address*/
+         rv = inet_pton(AF_INET, _interface, &_srcaddr.sin_addr);
+         if (rv < 0)
+         {
+           printerr("inet_pton: %s\n", showlasterr());
+           return(-1);
+         }
+         if (rv == 0)
+         {
+           printerr("invalid interface address\n");
+           return(-1);
+         }
+      }
+      else
+      {   /* assume interface name, like eth0 */
+        if (strchr(_interface, '.') != NULL)
         {   /* assume it is an IP address*/
           if ((rv = inet_pton(AF_INET, _interface, &_srcaddr.sin_addr)) < 0)
             printerr("inet_pton: %s\n", showlasterr());
@@ -534,7 +553,7 @@ int sock_init( char *_interface, char *_startIP, char *_endIP)
             printerr("invalid interface address\n");
           return(rv);
         }
-      else
+        else
         {   /* assume interface name, like eth0 */
           strncpy(ifr.ifr_name, _interface, IFNAMSIZ);
           ifr.ifr_addr.sa_family = AF_INET;
@@ -554,6 +573,7 @@ int sock_init( char *_interface, char *_startIP, char *_endIP)
 		 strcpy(g_endDest,temp_start);
 	  }
         }
+      }
     }
    }
 #endif
@@ -963,7 +983,7 @@ main(int argc, char **argv)
 #endif
    printf("%s ver %s\n", progname,progver);
 
-   while ( (c = getopt( argc, argv,"ab:ce:gi:l:mp:r:s:x?")) != EOF ) 
+   while ( (c = getopt( argc, argv,"ab:ce:ghi:l:mp:r:s:x?")) != EOF )
       switch(c) {
           case 'a': fBroadcastOk = 1; fping = 1;
 		break;  /*all (broadcast ping)*/
@@ -996,7 +1016,7 @@ main(int argc, char **argv)
                  * begin/end range. */
 		break;
           case 'x': fdebug = 1;     break;  /* debug messages */
-	  default:
+	  case 'h': default:
 		if (fdebug) printerr("getopt(%c) default\n",c);
                 show_usage();
                 rv = ERR_USAGE;

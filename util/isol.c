@@ -73,10 +73,15 @@ int i_sol(int argc, char **argv)
 
 /* All other OSs:  Linux, Windows, Solaris, BSD */
 #ifdef WIN32
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
+#ifdef HAVE_IPV6
+#include <winsock2.h>
+#else
 #include <winsock.h>
+#endif
 #include <io.h>
 #include "getopt.h"
 #else

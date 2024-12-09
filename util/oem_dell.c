@@ -4,6 +4,7 @@
  *
  * Change history:
  *  08/17/2011 ARCress - included in ipmiutil source tree
+ *  09/18/2024 ARCress - fix macos compile error with vFlashstr typedef
  *
  */
 /******************************************************************
@@ -157,8 +158,14 @@ static uint8_t SetLEDSupported=0;
 
 volatile uint8_t IMC_Type = IMC_IDRAC_10G;
 
+typedef struct
+{
+    int val;
+    char *str;
+} vFlashstr;
 
-const struct vFlashstr vFlash_completion_code_vals[] = {
+// const struct vFlashstr vFlash_completion_code_vals[] = {
+const vFlashstr  vFlash_completion_code_vals[] = {
 	{0x00, "SUCCESS"},
 	{0x01, "NO_SD_CARD"},
 	{0x63, "UNKNOWN_ERROR"},
@@ -250,7 +257,8 @@ static void ipmi_powermonitor_usage(void);
 
 /* vFlash Function prototypes */
 static int ipmi_delloem_vFlash_main(void * intf, int  argc, char ** argv);
-const char * get_vFlash_compcode_str(uint8_t vflashcompcode, const struct vFlashstr *vs);
+// const char * get_vFlash_compcode_str(uint8_t vflashcompcode, const struct vFlashstr *vs);
+const char * get_vFlash_compcode_str(uint8_t vflashcompcode, const vFlashstr *vs);
 static int ipmi_get_sd_card_info(void* intf);
 static int ipmi_delloem_vFlash_process(void* intf, int current_arg, char ** argv);
 static void ipmi_vFlash_usage(void);
@@ -4818,7 +4826,8 @@ static int ipmi_delloem_vFlash_main (void * intf, int  argc, char ** argv)
 *
 ******************************************************************/
 const char * 
-get_vFlash_compcode_str(uint8_t vflashcompcode, const struct vFlashstr *vs)
+// get_vFlash_compcode_str(uint8_t vflashcompcode, const struct vFlashstr *vs)
+get_vFlash_compcode_str(uint8_t vflashcompcode, const vFlashstr *vs)
 {
 	static char un_str[32];
 	int i;
