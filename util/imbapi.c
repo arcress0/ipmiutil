@@ -861,7 +861,7 @@ int ipmi_close_ia(void)
 
 
 int ipmi_cmdraw_ia(BYTE cmd, BYTE netfn, BYTE lun, BYTE sa, BYTE bus, 
-                   BYTE *pdata, BYTE sdata, BYTE *presp, int *sresp, 
+                   BYTE *pdata, int sdata, BYTE *presp, int *sresp, 
                    BYTE *pcc, char fdebugcmd)
 {
    IMBPREQUESTDATA requestData;

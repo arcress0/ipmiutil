@@ -54,11 +54,11 @@
 int get_LastError( void );  /* ipmilan.c */
 void show_LastError(char *tag, int err);
 void lprintf(int level, const char * format, ...); /*subs.c*/
-int  lan_keepalive(int type);  /*ipmilan.c*/
+int  lan_keepalive(uchar type);  /*ipmilan.c*/
 void set_loglevel(int level);
 void lperror(int level, const char * format, ...);
 int ipmi_open(char fdebugcmd);
-int open_sockfd(char *node, SockType *sfd, SOCKADDR_T  *daddr,
+int open_sockfd(char *node, int port, SockType *sfd, SOCKADDR_T  *daddr,
                        int *daddr_len, int foutput);
 
 int ipmi_tsol_main(void *, int, char **);

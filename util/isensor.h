@@ -159,7 +159,7 @@ int GetSensorReadingFactors(uchar snum, uchar raw, int *m, int *b, int *  b_exp,
             int *r, int *a);
 double RawToFloat(uchar raw, uchar *psdr);
 char *decode_entity_id(int id);
-char *get_unit_type(int iunits, int ibase, int imod, int fshort);
+char *get_unit_type(uchar iunits, uchar ibase, uchar imod, int fshort);
 
 /* 
  * decode_comp_reading

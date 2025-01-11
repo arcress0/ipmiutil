@@ -37,13 +37,8 @@
 #include <stdio.h>
 #include <string.h>
 #ifdef WIN32
-#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#ifdef HAVE_IPV6
-#include <winsock2.h>
-#else
 #include <winsock.h>
-#endif
 #include <io.h>
 #include <time.h>
 #include "getopt.h"
@@ -504,7 +499,7 @@ ipmi_tsol_main(void * intf, int  argc, char ** argv)
 	}
 
 	get_lan_options(hostname,NULL,NULL,&hauth, &hpriv, &hcipher,NULL,NULL);
-        result = open_sockfd(hostname, &sockfd, &haddr, &haddrlen, 1);
+        result = open_sockfd(hostname, port, &sockfd, &haddr, &haddrlen, 1);
 	if (result) {
 		lperror(LOG_ERR, "Connect to %s failed",hostname);
 		return result;

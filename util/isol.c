@@ -73,15 +73,10 @@ int i_sol(int argc, char **argv)
 
 /* All other OSs:  Linux, Windows, Solaris, BSD */
 #ifdef WIN32
-#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_IPV6
-#include <winsock2.h>
-#else
 #include <winsock.h>
-#endif
 #include <io.h>
 #include "getopt.h"
 #else
@@ -147,7 +142,7 @@ extern void tty_setnormal(int mode);   /*from ipmicmd.c*/
 extern SockType lan_get_fd(void);          /*from ipmilan.c*/
 extern int  lan_send_sol( uchar *payload, int len, SOL_RSP_PKT *rsp);
 extern int  lan_recv_sol( SOL_RSP_PKT *rsp );
-extern int  lan_keepalive(int type);
+extern int  lan_keepalive(uchar type);
 extern void lan_get_sol_data(uchar fEnc, uchar iseed, uint32 *seed);
 extern void lan_set_sol_data(uchar fEnc, uchar auth, uchar iseed, 
 				int insize, int outsize);

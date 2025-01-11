@@ -65,10 +65,11 @@ typedef long    wchar_t;
 #ifndef CONST
 #define CONST               const
 #endif
+#define uchar   unsigned char
+#define BYTE    unsigned char  
 typedef unsigned int        UINT32;
 typedef unsigned long       DWORD;
 typedef int                 BOOL;
-typedef unsigned char       BYTE;
 typedef unsigned short      WORD;
 typedef float               FLOAT;
 typedef FLOAT               *PFLOAT;

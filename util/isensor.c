@@ -625,7 +625,7 @@ int get_idx_range(char *str)
     return(0);
 }
 
-char *get_unit_type(int iunits, int ibase, int imod, int fshort)
+char *get_unit_type(uchar iunits, uchar ibase, uchar imod, int fshort)
 {
     char *pstr = NULL;
     char **punittypes;

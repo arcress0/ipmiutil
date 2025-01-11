@@ -20,7 +20,7 @@ libipmi_lanplus_a_SOURCES  = lanplus.c lanplus.h rmcp.h asf.h \
 lib_LTLIBRARIES       = 
 # lib_LTLIBRARIES       = libipmi_lanplus.la 
 
-# libipmi_lanplus_la_LIBADD    = -lcrypto
+libipmi_lanplus_la_LIBADD    = -lcrypto
 
 # libipmi_lanplus_la_SOURCES   = lanplus.c lanplus.h rmcp.h asf.h \
 #                                lanplus_dump.c lanplus_dump.h \

@@ -80,7 +80,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 extern char *progver;  /*from ipmiutil.c*/
 static char * progname  = "ipmiutil events";
 #else
-static char *progver   = "3.18";
+static char *progver   = "3.21";
 static char *progname  = "ievents";
 #endif
 static char fsensdesc = 0;   /* 1= get extended sensor descriptions*/
@@ -626,7 +626,7 @@ extern int GetSDR(int recid, int *recnext, uchar *sdr, int szsdr, int *slen);
 extern double RawToFloat(uchar raw, uchar *psdr);
 extern char *get_unit_type(uchar iunit, uchar ibase, uchar imod, int flg);
 extern int find_sdr_by_snum(uchar *psdr,uchar *pcache, uchar snum, uchar sa);
-extern int GetSensorType(int snum, uchar *stype, uchar *rtype);
+extern int GetSensorType(uchar snum, uchar *stype, uchar *rtype);
 extern char * get_mfg_str(uchar *rgmfg, int *pmfg);  /*from ihealth.c*/
 extern int decode_post_intel(int prod, ushort code, char *outbuf,int szbuf);
 extern int decode_sel_kontron(uchar *evt, char *obuf,int sz,char fdesc,char fdbg); /*oem_kontron.c*/

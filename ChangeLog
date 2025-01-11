@@ -4444,3 +4444,14 @@ wdt.8          iwdt.8       (ipmiutil wdt)
 11/30/2024 ARCress ipmiutil-3.2.0-1
   util/oem_dell.c  - fix macos compile error with vFlashstr typedef (Rui Chen #61)
   util/idiscover.c - detect if IP address (from tweimann/fix-issue-14)
+
+01/10/2025 ARCress ipmiutil-3.2.1-1  (for Linux build issues)
+  util/imbapi.c   - GH21: ipmi_cmdraw_ia(% int sdata %)
+  util/ipmiutil.h - GH21: define BYTE for LTO issue
+  util/imb_api.h  - GH21: define uchar for LTO issue
+  util/itsol.h    - GH21: lan_keepalive( uchar type), open_sockfd(int port)
+  util/isol.c     - GH21: lan_keepalive( uchar type)
+  util/isensor.c  - GH21: GetSensorType( uchar snum ...)
+  util/ievents.c  - GH21: get_unit_type( uchar iunit ...)
+  Makefile.am - SF Feat#10: change TMPDIR to TEMPDIR 
+  lib/lanplus/Makefile.am - SF Feat#11: add -lcrypto 

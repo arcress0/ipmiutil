@@ -42,6 +42,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define uchar   unsigned char
 #define uint32  unsigned int
 #define uint64  unsigned long
+#define BYTE    unsigned char  
 // #ifdef __USE_MISC
 /* Can use compatibility names for C types. (from sys/types.h) */
 // typedef unsigned long int  ulong;
