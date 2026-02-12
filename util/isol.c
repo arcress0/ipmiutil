@@ -19,6 +19,7 @@
  * 05/24/07 Andy Cress - Fix Enter key confusion in BIOS Setup (use CR+LF)
  * 06/15/07 Andy Cress - More fixes to Windows translation (fUseWinCon)
  * 08/20/07 Andy Cress - moved Windows translation to isolwin.c
+ * 01/31/26 Andy Cress - added WIN32_LEAN_AND_MEAN
  * See ChangeLog for further changes
  *
  * NOTE: There are a few other options for Serial-Over-LAN console 
@@ -73,10 +74,15 @@ int i_sol(int argc, char **argv)
 
 /* All other OSs:  Linux, Windows, Solaris, BSD */
 #ifdef WIN32
+#define WIN32_LEAN_AND_MEAN
+#ifdef HAVE_IPV6 
+#include <winsock2.h>
+#else
+#include <winsock.h>
+#endif
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <winsock.h>
 #include <io.h>
 #include "getopt.h"
 #else
