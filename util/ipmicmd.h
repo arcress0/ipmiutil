@@ -195,6 +195,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define PICMG_GET_LED_STATE       0x08
 #define PICMG_ID               0x00
  
+/* Table 28-14 Boot Option Parameters, boot flags, data 5 */
+#define MAX_LOGICAL_INSTANCE      15
+#define INTERNAL_INSTANCE_FLAG    0x10
+
 /* structure used by ipmi_cmd(), not used by ipmi_cmdraw */
 #define NCMDS   62  
 typedef struct {
