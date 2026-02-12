@@ -32,6 +32,7 @@
  * 09/18/06 Andy Cress 1.20 allow more platforms to do soft reset, and
  *                          if Tyan, ignore set boot options errors.
  * 01/10/07 Andy Cress 1.25 added reset_str(), modify initchar (6) if -o.
+ * 01/31/26 Andy Cress 2.21 SR62:interpret -e as modifier, not target (SMagnani)
  */
 /*M*
 Copyright (c) 2009 Kontron America, Inc.
@@ -199,7 +200,7 @@ static int set_wdt(uchar val, uchar act)
         return(ret);
 }  /*end set_wdt()*/
 
-char *reset_str(uchar breset, uchar bopt)
+char *reset_str(uchar breset)
 {
    char *str;
    switch(breset) {
@@ -213,18 +214,35 @@ char *reset_str(uchar breset, uchar bopt)
         case 7:  str = "cold reset BMC"; break; 
         default: str = "resetting"; break;
    }
+   return(str);
+}
+
+const char *target_str(uchar bopt)
+{
+   char *str = "";
    if (bopt > 0) 
      switch(bopt) {
-        case 1:  str = "resetting to Svc partition"; break;
-        case 2:  str = "resetting to EFI"; break;
-        case 3:  str = "resetting to PXE"; break;
-        case 4:  str = "resetting to CDROM"; break;
-        case 5:  str = "resetting to hard disk"; break;
-        case 6:  str = "resetting to BIOS Setup"; break;
-        case 7:  str = "resetting to floppy"; break;
-        default: str = "resetting"; break;
+        case 1:  str = " to Svc partition"; break;
+        case 2:  str = " to EFI"; break;
+        case 3:  str = " to PXE"; break;
+        case 4:  str = " to CDROM"; break;
+        case 5:  str = " to hard disk"; break;
+        case 6:  str = " to BIOS Setup"; break;
+        case 7:  str = " to floppy"; break;
+        default: break;
      }
    return(str);
+}
+
+const char *instance_str(int instance)
+{
+   static char str[16] = { '\0' };
+   if (instance > 0)
+   {
+      snprintf(str, sizeof(str), " %d", instance);
+   }
+
+   return str;
 }
 
 int set_boot_init_string(char *istr)
@@ -261,7 +279,7 @@ int set_boot_init_string(char *istr)
    return(rv);
 }
 
-static int IPMI_Reset(uchar bpower, uchar bootopt)
+static int IPMI_Reset(uchar bpower, uchar bootopt, uchar bEfiboot, int internal_instance)
 {
 	uchar responseData[MAX_BUFFER_SIZE];
 	int responseLength = MAX_BUFFER_SIZE;
@@ -296,7 +314,7 @@ static int IPMI_Reset(uchar bpower, uchar bootopt)
 	  if (fpersist)
 	     inputData[1] = 0xC0;  // valid flags, persistent
 	  else inputData[1] = 0x80;  // valid flags, next boot only
-          if (bootopt == 2) inputData[1] |= 0x20;  // add boot to EFI
+          if (bEfiboot) inputData[1] |= 0x20;  // add boot to EFI (modifier)
           if (bootopt == 1)      inputData[2] = 0x10;   // boot to svc partition
           else if (bootopt == 3) inputData[2] = 0x04;   // boot to PXE
           else if (bootopt == 4) inputData[2] = 0x14;   // boot to CDROM
@@ -307,7 +325,8 @@ static int IPMI_Reset(uchar bpower, uchar bootopt)
 	  else inputData[2] = 0x00;  // normal boot
 	  inputData[3] = gbootparm;
 	  inputData[4] = 0x00; //no overrides
-	  inputData[5] = 0x00; // 
+	  inputData[5] = internal_instance ? (INTERNAL_INSTANCE_FLAG | internal_instance)
+	                                   : 0x00;
 	  responseLength = MAX_BUFFER_SIZE;
           status = ipmi_cmd_mc(SET_BOOT_OPTIONS, inputData, 6, responseData,
                         &responseLength, &completionCode, fdebug);
@@ -402,7 +421,8 @@ static int IPMI_Reset(uchar bpower, uchar bootopt)
         /* 4 = NMI interrupt, 5 = soft shutdown OS via ACPI  */
 	if (bpower > 5) bpower = 5;  /* if invalid, try shutdown */
 	if (!fipmilan) {   /*only write to syslog if local*/
-	 sprintf(initmsg,"%s: chassis %s\n",progname,reset_str(bpower,bootopt));
+	 sprintf(initmsg,"%s: chassis %s%s%s%s\n",progname,reset_str(bpower), target_str(bootopt),
+	         instance_str(internal_instance), bEfiboot ? " (EFI)" : "");
          write_syslog(initmsg);
 	}
 	inputData[0] = bpower;  // chassis control reset
@@ -476,13 +496,14 @@ static void show_usage(void)
                 printf("       -k  do Cold Reset of the BMC firmware\n");
                 printf("       -i<str>  set boot Initiator mailbox string\n");
                 printf("       -j<num>  set IANA number for boot Initiator\n");
+                printf("       -l<num>  select internal Logical instance to boot\n");
                 printf("       -n  sends NMI to the system\n");
                 printf("       -o  soft-shutdown OS and reset\n");
                 printf("       -r  hard Resets the system\n");
                 printf("       -u  powers Up the system\n");
                 printf("       -m002000 specific MC (bus 00,sa 20,lun 00)\n");
                 printf("       -b  reboots to BIOS Setup\n");
-                printf("       -e  reboots to EFI\n");
+                printf("       -e  modifier: interpret 'reboot to' as an EFI target\n");
                 printf("       -f  reboots to Floppy/Removable\n");
                 printf("       -h  reboots to Hard Disk\n");
                 printf("       -p  reboots to PXE via network\n");
@@ -492,6 +513,22 @@ static void show_usage(void)
                 printf("       -x  show eXtra debug messages\n");
                 printf("       -y  Yes, persist boot options [-befhpms]\n");
 		print_lan_opt_usage(0);
+}
+
+void parse_boot_device(int c, uchar* breset, uchar* bopt)
+{
+   switch(c) {
+       case 's': *bopt = 1; break; /* hard reset to svc part */
+       case 'p': *bopt = 3; break; /* hard reset to PXE */
+       case 'v': *bopt = 4; break; /* hard reset to DVD/CD Media*/
+       case 'h': *bopt = 5; break; /* hard reset to Hard Disk  */
+       case 'b': *bopt = 6; break; /* hard reset to BIOS Setup */
+       case 'f': *bopt = 7; break; /* hard reset to floppy/remov*/
+   }
+
+   // This allows use of a boot device with -u and -c
+   if (*breset == INIT_VAL)
+      *breset = 3;
 }
 
 #ifdef METACOMMAND
@@ -516,8 +553,10 @@ main(int argc, char **argv)
    uchar rsdata[32];
    int rslen;
    int mfg = 0;
+   int internal_instance = 0;
    uchar cc;
    char *s1;
+   uchar bEfiboot = 0;
 
 #if defined (EFI)
    InitializeLib(_LIBC_EFIImageHandle, _LIBC_EFISystemTable);
@@ -529,7 +568,7 @@ main(int argc, char **argv)
    /* Request admin privilege by default, since power control requires it. */
    parse_lan_options('V',"4",0); 
 
-   while ((c = getopt(argc,argv,"bcdDefhi:j:km:noprsuvwyT:V:J:YEF:N:P:R:U:Z:x?")) != EOF)
+   while ((c = getopt(argc,argv,"bcdDefhi:j:kl:m:noprsuvwyT:V:J:YEF:N:P:R:U:Z:x?")) != EOF)
       switch(c) {
           case 'd': breset = 0;     break;  /* power down */
           case 'u': breset = 1;     break;  /* power up */
@@ -538,13 +577,17 @@ main(int argc, char **argv)
           case 'D': breset = 6; fshutdown = 1; break; /*soft shutdown,pwrdown*/
           case 'n': breset = 4;     break;  /* interrupt (NMI) */
           case 'r': breset = 3;     break;  /* hard reset */
-          case 's': breset = 3; bopt = 1; break; /* hard reset to svc part */
-          case 'e': breset = 3; bopt = 2; break; /* hard reset to EFI */
-          case 'p': breset = 3; bopt = 3; break; /* hard reset to PXE */
-          case 'v': breset = 3; bopt = 4; break; /* hard reset to DVD/CD Media*/
-          case 'h': breset = 3; bopt = 5; break; /* hard reset to Hard Disk  */
-          case 'b': breset = 3; bopt = 6; break; /* hard reset to BIOS Setup */
-          case 'f': breset = 3; bopt = 7; break; /* hard reset to floppy/remov*/
+          case 'e': bEfiboot = 1; break;  /* Perform EFI boot (instead of legacy/"PC compatible" boot) */
+
+          case 's':  /* hard reset to svc part */
+          case 'p':  /* hard reset to PXE */
+          case 'v':  /* hard reset to DVD/CD Media*/
+          case 'h':  /* hard reset to Hard Disk  */
+          case 'b':  /* hard reset to BIOS Setup */
+          case 'f':  /* hard reset to floppy/remov*/
+            parse_boot_device(c, &breset, &bopt);
+            break;
+
           case 'i': if (strlen(optarg) < MAX_INIT) initstr = optarg; break; 
           case 'j': mfg = atoi(optarg);     /*IANA number*/
 		    iana[0] = ((mfg & 0xFF0000) >> 16);
@@ -552,6 +595,7 @@ main(int argc, char **argv)
 		    iana[2] = (mfg & 0x0000FF);
 		    break;
           case 'k': breset = 7;    break;  /* cold reset to BMC */
+          case 'l': internal_instance = atoi(optarg);  break; /* internal boot device instance number */
           case 'w': fwait = 1;     break;  /* wait for ready */
           case 'y': fpersist = 1;  break;  /* yes, persist boot options */
           case 'm': /* specific MC, 3-byte address, e.g. "409600" */
@@ -588,6 +632,13 @@ main(int argc, char **argv)
    if (breset == INIT_VAL) {
 	show_usage();
 	printf("An option is required\n");
+	ret = ERR_BAD_PARAM;
+	goto do_exit;
+   }
+
+   if (   (internal_instance < 0)
+       || (internal_instance > MAX_LOGICAL_INSTANCE)) {
+	printf("Please specify an instance number between 0 and %d\n", MAX_LOGICAL_INSTANCE);
 	ret = ERR_BAD_PARAM;
 	goto do_exit;
    }
@@ -680,7 +731,7 @@ main(int argc, char **argv)
    }
 
    if (breset == 7) { /*do Cold Reset to BMC */
-      printf("%s: %s ...\n",progname,reset_str(breset,bopt));
+      printf("%s: %s ...\n",progname,reset_str(breset));
       rslen = sizeof(rsdata);
       ret = ipmi_cmdraw( 0x02, NETFN_APP, g_sa, g_bus, g_lun,
                         rqdata,0, rsdata, &rslen, &cc, fdebug);
@@ -734,8 +785,9 @@ main(int argc, char **argv)
       else printf("ipmilan async bridge agent not present\n");
       ipmi_close_(); 
    } else {
-      printf("%s: %s ...\n",progname,reset_str(breset,bopt));
-      ret = IPMI_Reset(breset,bopt);
+      printf("%s: %s%s%s%s ...\n",progname,reset_str(breset), target_str(bopt),
+             instance_str(internal_instance), bEfiboot ? " (EFI)" : "");
+      ret = IPMI_Reset(breset, bopt, bEfiboot, internal_instance);
       if (ret == 0) {   /* if ok */
   	  printf("%s: IPMI_Reset ok\n",progname);
 	  /* It starts resetting by this point, so do not close. */
