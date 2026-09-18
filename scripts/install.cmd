@@ -3,16 +3,16 @@ REM install Windows ipmiutil on this system
 REM install the DLLs, registry entries, and start the checksel task
 REM Use the current directory as the starting path
 set ipmiutildir=%CD%
-set orgdir=%SystemDrive%\Program Files\sourceforge
-set installdir=%orgdir%\ipmiutil
+set installdir=%SystemDrive%\Program Files\sourceforge\ipmiutil
 
 REM DLLs: showsel.dll, libeay32.dll, ssleay32.dll
-copy *.dll %SystemRoot%\system32
+copy showsel.dll %SystemRoot%\system32
 %ipmiutildir%\showsel.reg
 
 echo Copying files to "%installdir%"
-mkdir "%orgdir%" 
 mkdir "%installdir%"
+copy libeay32.dll "%installdir%"
+copy ssleay32.dll "%installdir%"
 copy "%ipmiutildir%\*.*" "%installdir%"
 
 REM echo PATH=%PATH%
