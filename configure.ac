@@ -331,7 +331,7 @@ else
 	tmpc=/tmp/tmp.c
 	tmpo=/tmp/tmp.o
 	echo $ECHO_N "checking compile sign warning flags ... $ECHO_C"
-	cfwarn="-Wno-pointer-sign -Wno-sign-conversion"
+	cfwarn="-Wno-pointer-sign -Wno-sign-conversion -Wlto-type-mismatch -Wmaybe-uninitialized -Wformat-overflow=1 -Wformat-truncation=1 "
     # want "-Wno-unused-result", but unrecognized
 	echo "int main(void) { return(1); }" >$tmpc
 	$CC -o $tmpo -c $cfwarn $tmpc  >/dev/null 2>&1
@@ -443,7 +443,7 @@ else
 		MD2_CFLAGS="-DSKIP_MD2 -DSSL11"
 		sslnew=1
 	fi
-	if test "$sslrel" = "3"; then
+	if test "$sslrel" = "3" -o "$sslrel" = "4"; then
 		echo "Detected openssl-$sslver" 
 		MD2_CFLAGS="-DSKIP_MD2 -DSSL11"
 		sslnew=1

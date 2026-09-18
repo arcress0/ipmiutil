@@ -4424,26 +4424,20 @@ wdt.8          iwdt.8       (ipmiutil wdt)
   configure.ac  - add -Wlto-type-mismatch to cfwarn
 
 07/05/2023 ARCress ipmiutil-3.1.9-2  changes 
-  setver  - ver 3.1.9-2
   lib/lanplus/lanplus.c - GH13: hpm netfn2c/cmd34 error, bridge netfn06,07/cmd34
   doc/ipmiutil.spec - GH17: do not abort if sensor command fails
   util/isensor.c - GH17: if MALFORMED, not fatal, show message before correct
 
 08/03/2023 ARCress ipmiutil-3.1.9-3
   util/ifru.c - GH15: fails to dump FRU with -d (added load_fru for fdump)
-  util/ilan.c - GH14: user set password fails w 0xCC, upriv = rd3 & 0x0F
+  util/ilan.c - GH14: GH14: user set password fails w 0xCC, upriv = rd3 & 0x0F
 
 02/23/2024 ARCress ipmiutil-3.1.9-4
   util/itsol.c - add winsock2.h case, comment out pollfd defn
 
-05/01/2024 ARCress
-  util/ipmilanplus.h - added winsock2.h 
-  util/isol.c - added winsock2.h 
-  util/isolwin.c ilan.c ihpm.c idiscover.c iconfig.c oem_kontron.c - added winsock2.h
-
 11/30/2024 ARCress ipmiutil-3.2.0-1
-  util/oem_dell.c  - fix macos compile error with vFlashstr typedef (Rui Chen #61)
-  util/idiscover.c - detect if IP address (from tweimann/fix-issue-14)
+  util/oem_dell.c  - fix macos compile error with vFlashstr typedef
+  util/idiscover.c - detect if IP address
 
 01/10/2025 ARCress ipmiutil-3.2.1-1  (for Linux build issues)
   util/imbapi.c   - GH21: ipmi_cmdraw_ia(% int sdata %)
@@ -4455,3 +4449,26 @@ wdt.8          iwdt.8       (ipmiutil wdt)
   util/ievents.c  - GH21: get_unit_type( uchar iunit ...)
   Makefile.am - SF Feat#10: change TMPDIR to TEMPDIR 
   lib/lanplus/Makefile.am - SF Feat#11: add -lcrypto 
+
+05/01/2025 ARCress ipmiutil-3.2.1-2 (for WinPE/64 openssl issue #23)
+  ssleay32.dll - GH23: new version from https://indy.fulgan.com/SSL/openssl-1.0.2u-x64_86-win64.zip
+  libeay32.dll - GH23: new version from https://indy.fulgan.com/SSL/openssl-1.0.2u-x64_86-win64.zip
+ 
+01/31/2026 ARCress ipmiutil-3.2.2-1 changes (iver 3.22)
+  util/ireset.c	- SR62: reset: interpret -e as modifier, not target (S Magnani)
+                  SR63: make_dash_u_and_boot_target_order_invariant (S Magnani)
+                  SR64: support_logical_instance_specification (S Magnani)
+  util/ipmicmd.c -SR64: support_logical_instance_specification (S Magnani)
+  
+07/30/2026 ARCress ipmiutil-3.2.3 Linux changes (iver 3.23)
+  configure.ac    - add 0800-openssl-4.patch from Brent Kirby
+    util/ipmiutil.c - set ver 3.23
+
+09/15/2025 ARCress ipmiutil-3.2.1 windows SSL changes (win 3.21 d)
+  update to ssl-3 for issue#26, install SSL dlls in ipmiutil dir 
+    buildwin64.cmd  - changes for separate lanplus 
+    util/install.cmd - copy SSL dll files to installdir, instead of system32
+    remove old SSL: ssleay32.dll ssleay32.lib libeay32.dll libeay32.lib
+    add new: libcrypto-3-x64.dll  libcrypto-3-x64.lib 
+    add new: libssl-3-x64.dll     libssl-3-x64.lib
+
